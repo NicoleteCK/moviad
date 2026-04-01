@@ -96,7 +96,7 @@ class TrainerPatchCore(Trainer):
             if self.save_path:
                 self.model.save_model(save_path=self.save_path)
 
-            gpu_device = torch.device("cuda:0")
+            gpu_device = torch.device("cpu")
             self.model.to(gpu_device)   
             self.evaluator.device = gpu_device
 
