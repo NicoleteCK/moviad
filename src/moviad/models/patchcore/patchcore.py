@@ -49,6 +49,7 @@ class PatchCore(VADModel):
 
         self.num_neighbors = num_neighbors
         self.device = feature_extractor.device
+        self.dtype = torch.float32  # Explicit dtype for consistency across training/inference
 
         self.feature_extractor = feature_extractor
         self.feature_pooler = torch.nn.AvgPool2d(3,1,1)
@@ -61,7 +62,7 @@ class PatchCore(VADModel):
             self.product_quantizer = ProductQuantizer()
 
         if coreset_extractor is None:
-            self.coreset_extractor = CoresetExtractor(False, self.device, k=self.memory_bank_size)
+            self.coreset_extractor = CoresetExtractor(False , self.device, k=self.memory_bank_size)
         else:
             self.coreset_extractor = coreset_extractor
 
@@ -154,6 +155,9 @@ class PatchCore(VADModel):
 
         if self.feature_extractor.quantized:
             embedding = torch.int_repr(embedding).to(torch.float64)
+        else:
+            # Ensure embedding dtype matches memory_bank for consistent distance computation
+            embedding = embedding.to(self.dtype)
 
         # apply nearest neighbor search
         if self.apply_quantization:
@@ -205,7 +209,8 @@ class PatchCore(VADModel):
                 self.product_quantizer.fit(coreset)
                 coreset = self.product_quantizer.encode(coreset)
 
-            self.memory_bank = coreset
+            # Ensure memory_bank is always float32 for consistent distance computation
+            self.memory_bank = coreset.to(self.dtype)
 
     def train_chunk(
         self, train_dataloader, training_args: TrainingArgs
@@ -235,7 +240,8 @@ class PatchCore(VADModel):
                 self.product_quantizer.fit(coreset)
                 coreset = self.product_quantizer.encode(coreset)
 
-            self.memory_bank = coreset
+            # Ensure memory_bank is always float32 for consistent distance computation
+            self.memory_bank = coreset.to(self.dtype)
 
             del embeddings
             del total_embbeddings
@@ -299,7 +305,7 @@ class PatchCore(VADModel):
         if quantized:
             return torch.cdist(x.dequantize(), y.dequantize())
 
-        return torch.cdist(x, y)
+        return torch.cdist(x.to(torch.float32), y.to(torch.float32))
 
     def nearest_neighbors(self, embedding: Tensor, n_neighbors: int, memory_bank: torch.Tensor = None) -> tuple[Tensor, Tensor]:
         """
@@ -307,6 +313,10 @@ class PatchCore(VADModel):
         """
         if memory_bank is None:
             memory_bank = self.memory_bank
+
+        # Ensure both tensors are on the same device and have the same dtype
+        embedding = embedding.to(self.device, dtype=self.dtype)
+        memory_bank = memory_bank.to(self.device, dtype=self.dtype)
 
         chunk_size = 1024
         patch_scores_list = []
@@ -520,15 +530,15 @@ class PatchCore(VADModel):
             path (str): where the pt file containing the memory bank is stored
         """
 
-        state_dict = torch.load(path)
+        state_dict = torch.load(path, map_location=self.device)
 
         ## TODO: MemoryBank quantization
 
         if "memory_bank" not in state_dict.keys():
             raise RuntimeError("Memory Bank tensor not in model checkpoint")
 
-        # load the memory bank
-        self.memory_bank = state_dict["memory_bank"]
+        # load the memory bank and ensure it's always float32
+        self.memory_bank = state_dict["memory_bank"].to(self.dtype)
 
     def reset_model(self):
         self.memory_bank = None

@@ -111,6 +111,7 @@ class CoresetExtractor:
 
             if self.quantized:
                 z_lib = torch.int_repr(z_lib).to(torch.float64).cpu()
+            z_lib = z_lib.to(torch.float32).cpu()
             z_lib = torch.tensor(transformer.fit_transform(z_lib))
             print(f"   DONE.                 Transformed dim = {z_lib.shape}.")
         except ValueError:
@@ -154,12 +155,13 @@ class CoresetExtractor:
             embeddings (torch.Tensor): Embeddings from a CNN.
 
         Returns:
-            torch.Tensor: Coreset embeddings.
+            torch.Tensor: Coreset embeddings (always float32 for consistency).
         """
 
         sampled_idxs = self.get_coreset_idx_randomp(embeddings.cpu())
         coreset = embeddings[sampled_idxs]
-        return coreset
+        # Ensure coreset is always float32 regardless of input dtype
+        return coreset.to(torch.float32)
 
     def select_coreset_idxs(self, selected_idxs: list[int] | None = None) -> list[int]:
         """Greedily form a coreset to minimize the maximum distance of a cluster.
