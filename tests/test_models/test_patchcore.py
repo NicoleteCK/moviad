@@ -12,7 +12,7 @@ def test_model_create_train():
     import wandb
     from moviad.utilities.configurations import LabelName
 
-    device = torch.device("cuda::2" if torch.cuda.is_available() else "cpu")
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
     wandb.init(project="cpsad2d_test", name="patchcore", mode="disabled")
 
@@ -23,9 +23,8 @@ def test_model_create_train():
         image_transform_list = None
     )
 
-    train_dataset = CPSAD2DDataset(args, category="cps_1", split="train")
-    test_dataset = CPSAD2DDataset(args, category="cps_1", split="test")
-    test_dataset = Subset(test_dataset, list(range(0, 100)))  # use a subset for faster testing
+    train_dataset = CPSAD2DDataset(args, split="train")
+    test_dataset = CPSAD2DDataset(args, split="test")
 
     print(f"Train dataset size: {len(train_dataset)}")
     print(f"Test dataset size: {len(test_dataset)}")

@@ -40,8 +40,8 @@ class CPSAD2DDataset(VADDataset):
     def __init__(
         self,
         dataset_arguments: DatasetArguments,
-        category: str,
-        split: Split | list[Split]
+        split: Split | list[Split],
+        category: str | None = None
     ) -> None:
 
         super().__init__(
@@ -110,39 +110,44 @@ class CPSAD2DDataset(VADDataset):
 
 
     def _apply_custom_split(self, df: pd.DataFrame, train_ratio: float):
-        # Il parametro train_ratio viene ignorato in questa logica a favore del numero fisso
+        # Il parametro train_ratio viene ignorato per rispettare il vincolo dei 300 campioni
         seed = 42 
         num_train_normal = 300
         
+        # Separazione tra normali e anomalie
         is_normal = df['label'] == LabelName.NORMAL
+        df_normal_all = df[is_normal]
+        df_anomaly_all = df[~is_normal]
         
-        df_normal = df[is_normal].sample(frac=1, random_state=seed)
-        df_anomaly = df[~is_normal].sample(frac=1, random_state=seed)
+        # 1. Shuffle e selezione Training (300 campioni normali casuali)
+        if len(df_normal_all) < num_train_normal:
+            raise ValueError(f"Dataset insufficiente: richiesti {num_train_normal} normali, presenti {len(df_normal_all)}.")
         
-        # 1. Selezione Training (300 campioni normali)
-        if len(df_normal) < num_train_normal:
-            raise ValueError(f"Il dataset contiene solo {len(df_normal)} campioni normali, impossibili estrarne {num_train_normal}.")
+        # Mischiamo le normali e prendiamo le prime 300 per il train
+        df_normal_shuffled = df_normal_all.sample(frac=1, random_state=seed)
+        train_indices = df_normal_shuffled.index[:num_train_normal]
         
-        train_indices = df_normal.index[:num_train_normal]
-        
-        # 2. Selezione Test (Normali rimanenti)
-        remaining_normal_indices = df_normal.index[num_train_normal:]
+        # 2. Selezione Test (Tutte le normali rimanenti)
+        remaining_normal_indices = df_normal_shuffled.index[num_train_normal:]
         num_test_normal = len(remaining_normal_indices)
         
-        # 3. Bilanciamento Test (Stesso numero di anomalie rispetto alle normali del test)
-        if len(df_anomaly) < num_test_normal:
-            print(f"Warning: Solo {len(df_anomaly)} anomalie disponibili. Il test set non sarà perfettamente bilanciato.")
-            test_anomaly_indices = df_anomaly.index
+        # 3. Selezione Casuale Anomalie per il bilanciamento
+        if len(df_anomaly_all) >= num_test_normal:
+            test_anomaly_indices = df_anomaly_all.sample(n=num_test_normal, random_state=seed).index
         else:
-            test_anomaly_indices = df_anomaly.index[:num_test_normal]
+            # Se ci sono meno anomalie delle normali rimaste, le prendiamo tutte (shuffled)
+            print(f"Warning: Solo {len(df_anomaly_all)} anomalie disponibili per {num_test_normal} normali.")
+            test_anomaly_indices = df_anomaly_all.sample(frac=1, random_state=seed).index
         
+        # Unione degli indici per il test set
         test_indices = list(remaining_normal_indices) + list(test_anomaly_indices)
 
-        # Applicazione dello split al DataFrame
-        df['split'] = 'excluded'  # Reset per sicurezza
+        # Marcatura nel DataFrame originale
+        df['split'] = 'excluded' 
         df.loc[train_indices, 'split'] = "train"
         df.loc[test_indices, 'split'] = "test"
 
+        # Selezione del subset richiesto (train o test)
         target_split = self.split.value if hasattr(self.split, 'value') else self.split
         return df[df['split'] == target_split].reset_index(drop=True)
     
