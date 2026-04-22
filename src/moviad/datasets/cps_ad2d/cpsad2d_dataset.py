@@ -95,8 +95,6 @@ class CPSAD2DDataset(VADDataset):
 
         df_samples = pd.DataFrame(all_samples)
 
-        print(f"Total samples found: {len(df_samples)}")
-        print(f"Anomalie totali trovate: {(df_samples['label'] == LabelName.ABNORMAL).sum()}")
 
         if df_samples.empty:
             raise RuntimeError(f"Nessuna immagine trovata in {self.dataset_root}")
@@ -109,30 +107,42 @@ class CPSAD2DDataset(VADDataset):
         if target_split == "train":
             initial_count = len(self.samples)
             self.samples = self.samples[self.samples.label == LabelName.NORMAL].reset_index(drop=True)
-            
-            # Debug opzionale per vedere quanti ne hai scartati
-            removed = initial_count - len(self.samples)
-            print(f"INFO: Rimosse {removed} anomalie dal set di training per purificarlo.")
+
 
     def _apply_custom_split(self, df: pd.DataFrame, train_ratio: float):
-
+        # Il parametro train_ratio viene ignorato in questa logica a favore del numero fisso
         seed = 42 
+        num_train_normal = 300
         
-        train_indices = []
-        test_indices = []
-
-        for (cat, lab), group in df.groupby(['category', 'label']):
-            group = group.sample(frac=1, random_state=seed) # Mix
-            cut = int(len(group) * train_ratio)
-            
-            train_indices.extend(group.index[:cut])
-            test_indices.extend(group.index[cut:])
-
+        is_normal = df['label'] == LabelName.NORMAL
         
+        df_normal = df[is_normal].sample(frac=1, random_state=seed)
+        df_anomaly = df[~is_normal].sample(frac=1, random_state=seed)
+        
+        # 1. Selezione Training (300 campioni normali)
+        if len(df_normal) < num_train_normal:
+            raise ValueError(f"Il dataset contiene solo {len(df_normal)} campioni normali, impossibili estrarne {num_train_normal}.")
+        
+        train_indices = df_normal.index[:num_train_normal]
+        
+        # 2. Selezione Test (Normali rimanenti)
+        remaining_normal_indices = df_normal.index[num_train_normal:]
+        num_test_normal = len(remaining_normal_indices)
+        
+        # 3. Bilanciamento Test (Stesso numero di anomalie rispetto alle normali del test)
+        if len(df_anomaly) < num_test_normal:
+            print(f"Warning: Solo {len(df_anomaly)} anomalie disponibili. Il test set non sarà perfettamente bilanciato.")
+            test_anomaly_indices = df_anomaly.index
+        else:
+            test_anomaly_indices = df_anomaly.index[:num_test_normal]
+        
+        test_indices = list(remaining_normal_indices) + list(test_anomaly_indices)
+
+        # Applicazione dello split al DataFrame
+        df['split'] = 'excluded'  # Reset per sicurezza
         df.loc[train_indices, 'split'] = "train"
         df.loc[test_indices, 'split'] = "test"
 
-        
         target_split = self.split.value if hasattr(self.split, 'value') else self.split
         return df[df['split'] == target_split].reset_index(drop=True)
     
