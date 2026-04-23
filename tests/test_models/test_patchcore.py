@@ -30,14 +30,14 @@ def test_model_create_train():
     print(f"Test dataset size: {len(test_dataset)}")
 
 
-    feature_extractor = CustomFeatureExtractor("mobilenet_v2", ["features.3", "features.6", "features.13"], device, frozen=True)    
+    feature_extractor = CustomFeatureExtractor("mobilenet_v2", ["features.6", "features.13"], device, frozen=True)    
     model = PatchCore(
         feature_extractor=feature_extractor,
-        memory_bank_size=10000,
+        memory_bank_size=30000,
     )
     model.to(device)
 
-    training_args = TrainingArgs(epochs=2, batch_size=6)
+    training_args = TrainingArgs(epochs=1, batch_size=32)
 
     trainer = Trainer(
         training_args,
@@ -54,7 +54,7 @@ def test_model_create_train():
             ProAuc(MetricLvl.PIXEL),
         ],
         device=device,
-        logger=None,
+        logger=wandb,
         save_path=None,
         saving_criteria=None,
     )

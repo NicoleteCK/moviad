@@ -94,19 +94,25 @@ class CPSAD2DDataset(VADDataset):
                         img_gray = img_raw.convert("L")
                         mask_gray = mask_raw.convert("L")
                         
-                        width, height = img_gray.size
+                        w, h = img_gray.size # 480, 270
+                        mid = w // 2         # 240
                         
-                        # Definiamo le coordinate delle due patch (Sinistra e Destra)
-                        # Patch 1: (0, 0, 224, 224)
-                        # Patch 2: (W-224, 0, W, 224)
-                        coords = [
-                            (0, 0, PATCH_SIZE, PATCH_SIZE),
-                            (max(0, width - PATCH_SIZE), 0, width, PATCH_SIZE)
+                        # Definiamo le due metà: Sinistra e Destra
+                        # Ogni metà sarà 270x240
+                        halves = [
+                            (0, 0, mid, h),      # Metà sinistra
+                            (mid, 0, w, h)       # Metà destra
                         ]
 
-                        for i, box in enumerate(coords):
-                            # Ritaglio della patch sulla maschera
+                        for i, box in enumerate(halves):
+                            # 1. Ritaglio della metà
+                            patch_img = img_gray.crop(box)
                             patch_mask = mask_gray.crop(box)
+                            
+                            # 2. Resize a 224x224
+                            # Usiamo LANCZOS per l'immagine (alta qualità) e NEAREST per la maschera (mantiene i bordi netti)
+                            patch_img = patch_img.resize((PATCH_SIZE, PATCH_SIZE), Image.Resampling.LANCZOS)
+                            patch_mask = patch_mask.resize((PATCH_SIZE, PATCH_SIZE), Image.Resampling.NEAREST)
                             
                             # Determiniamo la label specifica per questa patch
                             # Se il valore massimo nella patch della maschera è > 0, è anomala
@@ -145,7 +151,7 @@ class CPSAD2DDataset(VADDataset):
     def _apply_custom_split(self, df: pd.DataFrame, train_ratio: float):
         # Il parametro train_ratio viene ignorato per rispettare il vincolo dei 300 campioni
         seed = 42 
-        num_train_normal = 600
+        num_train_normal = 300
         
         # Separazione tra normali e anomalie
         is_normal = df['label'] == LabelName.NORMAL
@@ -161,7 +167,7 @@ class CPSAD2DDataset(VADDataset):
         train_indices = df_normal_shuffled.index[:num_train_normal]
         
         # 2. Selezione Test 
-        remaining_normal_indices = df_normal_shuffled.index[num_train_normal:num_train_normal + 200]
+        remaining_normal_indices = df_normal_shuffled.index[num_train_normal:num_train_normal + 100]
         num_test_normal = len(remaining_normal_indices)
         
         # 3. Selezione Casuale Anomalie per il bilanciamento
