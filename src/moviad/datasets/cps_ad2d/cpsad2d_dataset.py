@@ -26,6 +26,8 @@ CATEGORIES = (
 
 IMG_SIZE = (3, 270, 480)
 
+PATCH_SIZE = 224
+
 """Create CPS-AD2D samples by parsing the CPS-AD2D data file structure.
 
     The files are expected to follow the structure:
@@ -75,23 +77,54 @@ class CPSAD2DDataset(VADDataset):
 
             for image_path in images_path.glob("*"):
                 if image_path.suffix in IMG_EXTENSIONS:
-
+                    
+                    # Gestione speciale per categoria cps_6 (come discusso precedentemente)
+                    '''if category_name == "cps_6":
+                        mask_path = annotations_path.parent / "defect" / (image_path.stem + ".png")
+                    else:
+                        mask_path = annotations_path / (image_path.stem + ".png")'''
+                    
                     mask_path = annotations_path / (image_path.stem + ".png")
 
-                    label = LabelName.NORMAL
+                    if not mask_path.exists():
+                        continue 
 
-                    if mask_path.exists():
-                        with Image.open(mask_path) as img:
-                            if img.convert("L").getextrema()[1] > 0:
-                                label = LabelName.ABNORMAL
+                    # Apriamo immagine e maschera per estrarre le patch
+                    with Image.open(image_path) as img_raw, Image.open(mask_path) as mask_raw:
+                        img_gray = img_raw.convert("L")
+                        mask_gray = mask_raw.convert("L")
+                        
+                        width, height = img_gray.size
+                        
+                        # Definiamo le coordinate delle due patch (Sinistra e Destra)
+                        # Patch 1: (0, 0, 224, 224)
+                        # Patch 2: (W-224, 0, W, 224)
+                        coords = [
+                            (0, 0, PATCH_SIZE, PATCH_SIZE),
+                            (max(0, width - PATCH_SIZE), 0, width, PATCH_SIZE)
+                        ]
 
-                    all_samples.append({
-                        "image_path": str(image_path),
-                        "mask_path": str(mask_path) if mask_path.exists() else None,
-                        "label": label,
-                        "category": category_name,
-                        "split": "train" # Default temporaneo
-                    })
+                        for i, box in enumerate(coords):
+                            # Ritaglio della patch sulla maschera
+                            patch_mask = mask_gray.crop(box)
+                            
+                            # Determiniamo la label specifica per questa patch
+                            # Se il valore massimo nella patch della maschera è > 0, è anomala
+                            if patch_mask.getextrema()[1] > 0:
+                                current_label = LabelName.ABNORMAL
+                            else:
+                                current_label = LabelName.NORMAL
+
+                            # Aggiungiamo la patch alla lista dei campioni
+                            all_samples.append({
+                                "image_path": str(image_path),
+                                "mask_path": str(mask_path),
+                                "label": current_label,
+                                "category": category_name,
+                                "split": "train",
+                                "patch_index": i,     # Identificatore della patch (0 o 1)
+                                "patch_box": box      # Salviamo le coordinate per il dataloader
+                            })
 
         df_samples = pd.DataFrame(all_samples)
 
@@ -112,7 +145,7 @@ class CPSAD2DDataset(VADDataset):
     def _apply_custom_split(self, df: pd.DataFrame, train_ratio: float):
         # Il parametro train_ratio viene ignorato per rispettare il vincolo dei 300 campioni
         seed = 42 
-        num_train_normal = 300
+        num_train_normal = 600
         
         # Separazione tra normali e anomalie
         is_normal = df['label'] == LabelName.NORMAL
@@ -127,8 +160,8 @@ class CPSAD2DDataset(VADDataset):
         df_normal_shuffled = df_normal_all.sample(frac=1, random_state=seed)
         train_indices = df_normal_shuffled.index[:num_train_normal]
         
-        # 2. Selezione Test (Tutte le normali rimanenti)
-        remaining_normal_indices = df_normal_shuffled.index[num_train_normal:]
+        # 2. Selezione Test 
+        remaining_normal_indices = df_normal_shuffled.index[num_train_normal:num_train_normal + 200]
         num_test_normal = len(remaining_normal_indices)
         
         # 3. Selezione Casuale Anomalie per il bilanciamento
@@ -152,37 +185,42 @@ class CPSAD2DDataset(VADDataset):
         return df[df['split'] == target_split].reset_index(drop=True)
     
     def __getitem__(self, index: int):
-        """
-        Args:
-            index (int): indice dell'elemento da restituire
-        Returns:
-            TRAIN: image, label (e opzionalmente mask)
-            TEST: image, label, mask, path
-        """
-        if self.samples is None:
-            self.load_dataset()
+            """
+            Args:
+                index (int): indice dell'elemento da restituire
+            Returns:
+                TRAIN: image, 
+                TEST: image, label, mask, path
+            """
+            if self.samples is None:
+                self.load_dataset()
 
-        sample = self.samples.iloc[index]
+            sample = self.samples.iloc[index]
+            
+            # 1. Caricamento e Ritaglio Immagine
+            full_img = Image.open(sample.image_path).convert("RGB")
+            # Usiamo il patch_box salvato (che contiene le coordinate [x0, y0, x1, y1])
+            patch_img = full_img.crop(sample.patch_box)
+            image = self.transform_image(patch_img)
 
+            label = sample.label
+            path = str(sample.image_path)
 
-        image = self.transform_image(
-            Image.open(self.samples.iloc[index].image_path).convert("RGB")
-        )
+            # 2. Gestione Maschera (con Ritaglio)
+            if label == LabelName.NORMAL or sample.mask_path is None:
+                # Creiamo una maschera nera delle dimensioni della patch (224x224)
+                mask = torch.zeros(1, image.shape[1], image.shape[2])
+            else:
+                full_mask = Image.open(sample.mask_path).convert("L")
+                # Ritagliamo anche la maschera con lo stesso box dell'immagine
+                patch_mask = full_mask.crop(sample.patch_box)
+                mask = self.transform_mask(patch_mask)
 
-        label = sample.label
-        path = str(sample.image_path)
-
-
-        if label == LabelName.NORMAL or sample.mask_path is None:
-            mask = torch.zeros(1, image.shape[1], image.shape[2])
-        else:
-            mask = Image.open(sample.mask_path).convert("L")
-            mask = self.transform_mask(mask)
-
-        if self.split == Split.TRAIN:
-            return image
-        else:
-            return image, label, mask.int(), path
+            # 3. Restituzione in base allo split
+            if self.split == Split.TRAIN:
+                return image
+            else:
+                return image, label, mask.int(), path
         
     def __len__(self) -> int:
         if self.samples is None:
