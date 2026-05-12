@@ -1,8 +1,9 @@
 def test_model_create_train():
-    from moviad.models.anomalyclip.anomalyclip import AnomalyCLIPModel
+    from moviad.models.anomalyclip.anomalyclip import AnomalyCLIPModel , AnomalyCLIPTrainArgs
     from moviad.models.training_args import TrainingArgs
     from moviad.trainers.trainer import Trainer
     from moviad.datasets.cps_ad2d.cpsad2d_dataset import CPSAD2DDataset
+    from moviad.datasets.miic.miic_dataset import MIICDataset
     from moviad.datasets.dataset_arguments import DatasetArguments
     from moviad.utilities.evaluation.metrics import MetricLvl, RocAuc, AvgPrec, F1, ProAuc
     import torch
@@ -35,13 +36,15 @@ def test_model_create_train():
         image_transform_list = transform_list
     )
 
-    train_dataset = CPSAD2DDataset(args, split="train")
+    args_miic = DatasetArguments(
+        dataset_path = "/Users/nicolaberti/Documents/Datasets/MIIC",
+        img_size = (224, 224),
+        gt_mask_size = (224, 224),
+        image_transform_list = transform_list
+    )
+
+    train_dataset = MIICDataset(args_miic, split="test")
     test_dataset = CPSAD2DDataset(args, split="test")
-
-    print(f"Train dataset size: {len(train_dataset)}")
-    print(f"Test dataset size: {len(test_dataset)}")
-
-    path_to_checkpoint = "/Users/nicolaberti/GitHub/ZSAD-Thesis/external/moviad/src/moviad/models/anomalyclip/AnomalyCLIP_lib/epoch_15_visa.pth"
 
 
     model = AnomalyCLIPModel(
@@ -54,21 +57,21 @@ def test_model_create_train():
         depth=9,
         t_n_ctx=4,
         pretrained_model="ViT-L/14@336px",
-        checkpoint= "mvctec", # or "visa" or None
+        checkpoint= None,
         sigma = 4
     )
     model.float()
     model.to(device)
-    model.eval()
 
-    test_dataloader = torch.utils.data.DataLoader(
+    training_args = AnomalyCLIPTrainArgs(batch_size=8, epochs=15, evaluation_epoch_interval=15)
+    training_args.init_train(model)
+
+    trainer = Trainer(
+        training_args,
+        model,
+        train_dataset,
         test_dataset,
-        batch_size=1,
-        shuffle=False,
-        num_workers=4
-    ) 
-
-    results = Evaluator.evaluate(model, test_dataloader, metrics=[
+        metrics=[
             RocAuc(MetricLvl.IMAGE),
             RocAuc(MetricLvl.PIXEL),
             AvgPrec(MetricLvl.IMAGE),
@@ -76,14 +79,14 @@ def test_model_create_train():
             F1(MetricLvl.IMAGE),
             F1(MetricLvl.PIXEL),
             ProAuc(MetricLvl.PIXEL),
-        ], device=device )
-    
-    print("Report finale:", results)
+        ],
+        device=device,
+        logger=wandb,
+        save_path="/Users/nicolaberti/GitHub/ZSAD-Thesis/external/moviad/src/moviad/models/anomalyclip/AnomalyCLIP_lib/epoch_15_miic.pth",
+        saving_criteria=None,
+    )
 
-    if wandb:
-        wandb.log({
-                f"/test/{metric_name}": value for metric_name, value in results.items()
-            })
+    trainer.train()
 
 
 if __name__ == '__main__':

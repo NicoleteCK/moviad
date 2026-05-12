@@ -32,8 +32,6 @@ class AnomalyCLIPTrainer(Trainer):
         logging_prefix: str = "",
         save_path: str | None = None,
         saving_criteria: Callable | None = None,
-        learning_rate: float = 0.001,
-        betas: tuple = (0.5, 0.999)
     ):
         """
         Initialize AnomalyCLIP trainer.
@@ -49,19 +47,11 @@ class AnomalyCLIPTrainer(Trainer):
             logging_prefix: Prefix for logged metrics
             save_path: Path to save model checkpoints
             saving_criteria: Function to determine when to save model
-            learning_rate: Learning rate for optimizer
-            betas: Beta parameters for Adam optimizer
         """
         # Initialize optimizer before calling parent constructor
         # Only optimize prompt learner parameters
-        self.optimizer = torch.optim.Adam(
-            list(model.prompt_learner.parameters()),
-            lr=learning_rate,
-            betas=betas
-        )
-        
-        # Update training args with optimizer
-        train_args.optimizer = self.optimizer
+
+        self.optimizer = train_args.optimizer
         
         # Call parent constructor
         super().__init__(

@@ -20,13 +20,23 @@ if packaging.version.parse(torch.__version__) < packaging.version.parse("1.7.1")
 
 
 __all__ = ["available_models", "load", 
-           "get_similarity_map",  "compute_similarity"]
+           "get_similarity_map",  "compute_similarity", "download_prompt_learner"]
 _tokenizer = _Tokenizer()
 
 _MODELS = {
     "ViT-L/14@336px": "https://openaipublic.azureedge.net/clip/models/3035c92b350959924f9f00213499208652fc7ea050643e8b385c2dac08641f02/ViT-L-14-336px.pt",
 }
 
+_CHECKPOINTS = {
+    "visa": {
+        "url": "https://github.com/zqhang/AnomalyCLIP/raw/3911738c0867544f545a076ad78f3f11d9ecbfdf/checkpoints/9_12_4_multiscale_visa/epoch_15.pth",
+        "hash": "415c5dcb52668b8c33fb9c1a351c686d632b919df5b384d63fa9ce7a2338ced4" 
+    },
+    "mvtec": {
+        "url": "https://github.com/zqhang/AnomalyCLIP/raw/3911738c0867544f545a076ad78f3f11d9ecbfdf/checkpoints/9_12_4_multiscale/epoch_15.pth",
+        "hash": "94ce202da3e6486a864b904fdfed5057de75846c5834e446fd1d2fe7f97acb44"
+    }
+}
 
 def _download(
         url: str,
@@ -70,7 +80,7 @@ def _download(
                 loop.update(len(buffer))
 
     if expected_sha256 and not hashlib.sha256(open(download_target, "rb").read()).hexdigest().startswith(expected_sha256):
-        raise RuntimeError(f"Model has been downloaded but the SHA256 checksum does not not match")
+        raise RuntimeError(f"Model has been downloaded but the SHA256 checksum does not not match.")
 
     return download_target
 
@@ -231,3 +241,44 @@ def compute_similarity(image_features, text_features, t=2):
     feats = image_features.reshape(b, n_i, 1, c) * text_features.reshape(1, 1, n_t, c)
     similarity = feats.sum(-1)
     return (similarity/0.07).softmax(-1), prob_1
+
+def download_prompt_learner(name: str, cache_dir: str = None) -> str:
+    """
+    Downloads learned prompts for AnomalyCLIP.
+    """
+    if cache_dir is None:
+        cache_dir = os.path.expanduser("~/.cache/anomaly_clip")
+
+    if name.lower() not in _CHECKPOINTS:
+        raise ValueError(f"Model {name} not found. Available: {list(_MODELS.keys())}")
+
+    model_info = _CHECKPOINTS[name.lower()]
+    url = model_info["url"]
+    expected_hash = model_info["hash"]
+    
+    os.makedirs(cache_dir, exist_ok=True)
+    filename = os.path.basename(url)
+    download_target = os.path.join(cache_dir, filename)
+
+    # Check if file exists and verify hash
+    if os.path.exists(download_target):
+        if hashlib.sha256(open(download_target, "rb").read()).hexdigest() == expected_hash:
+            return download_target
+        else:
+            warnings.warn(f"{filename} exists but the hash is invalid. Re-downloading...")
+
+    # Start download using urllib
+    print(f"Downloading {name} prompt learner weights to {download_target}...")
+    with urllib.request.urlopen(url) as source, open(download_target, "wb") as output:
+        while True:
+            buffer = source.read(8192)
+            if not buffer:
+                break
+            output.write(buffer)
+
+    # Final validation
+    actual_hash = hashlib.sha256(open(download_target, "rb").read()).hexdigest()
+    if actual_hash != expected_hash:
+        raise RuntimeError(f"Model has been downloaded but the SHA256 checksum does not match.")
+
+    return download_target

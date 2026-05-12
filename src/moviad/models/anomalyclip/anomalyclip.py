@@ -17,6 +17,19 @@ from . import AnomalyCLIP_lib
 from .prompt_ensemble import AnomalyCLIP_PromptLearner
 from .loss import FocalLoss, BinaryDiceLoss
 
+class AnomalyCLIPArgs(TrainingArgs):
+
+    def init_train(self, model):
+        if not self.optimizer:
+            self.optimizer = torch.optim.Adam(
+                list(model.prompt_learner.parameters()),
+                lr=0.001,
+                betas=(0.5, 0.999)
+            )
+    def __to_dict__(self):
+        return {
+            "optimizer": self.optimizer_to_dict(self.optimizer) if self.optimizer else None,
+        }
 
 class AnomalyCLIPModel(VADModel):
     """
@@ -29,7 +42,7 @@ class AnomalyCLIPModel(VADModel):
     def __init__(
         self,
         device: torch.device,
-        image_size: int = 518,
+        image_size: int = 224,
         features_list: list = [6, 12, 18, 24],
         feature_map_layer: list = [0, 1, 2, 3],
         dpam_layer: int = 20,
@@ -37,7 +50,7 @@ class AnomalyCLIPModel(VADModel):
         depth: int = 9,
         t_n_ctx: int = 4,
         pretrained_model: str = "ViT-L/14@336px",
-        checkpoint_path: str | None = None,
+        checkpoint: str | None = None,
         sigma: int = 4
     ):
         """
@@ -84,7 +97,8 @@ class AnomalyCLIPModel(VADModel):
             anomalyclip_params
         )
 
-        if checkpoint_path is not None:
+        if checkpoint is not None:
+            checkpoint_path = AnomalyCLIP_lib.download_prompt_learner(checkpoint)
             self.load(checkpoint_path)
 
         self.prompt_learner.to(device)
@@ -342,3 +356,4 @@ class AnomalyCLIPModel(VADModel):
             "total_params": prompt_learner_params + clip_params,
             "trainable_params": prompt_learner_params
         }
+    
