@@ -1,9 +1,9 @@
 def test_model_create_train():
-    from moviad.models.anomalyclip.anomalyclip import AnomalyCLIPModel , AnomalyCLIPTrainArgs
+    from moviad.models.anomalyclip.anomalyclip import AnomalyCLIPModel , AnomalyCLIPArgs
     from moviad.models.training_args import TrainingArgs
     from moviad.trainers.trainer import Trainer
     from moviad.datasets.cps_ad2d.cpsad2d_dataset import CPSAD2DDataset
-    from moviad.datasets.miic.miic_dataset import MIICDataset
+    from moviad.datasets.miic.miic_dataset import MiicDataset
     from moviad.datasets.dataset_arguments import DatasetArguments
     from moviad.utilities.evaluation.metrics import MetricLvl, RocAuc, AvgPrec, F1, ProAuc
     import torch
@@ -26,7 +26,7 @@ def test_model_create_train():
       transforms.Normalize(mean=constants.OPENAI_DATASET_MEAN, std=constants.OPENAI_DATASET_STD)
       ]
 
-    wandb.init(project="anomaly_clip_test", entity = "test_cpsas2d", name="anomaly_clip", mode="disabled")
+    wandb.init(project="anomaly_clip_test", entity = "test_cpsas2d", name="miic_tuned", mode="disabled")
 
 
     args = DatasetArguments(
@@ -43,7 +43,7 @@ def test_model_create_train():
         image_transform_list = transform_list
     )
 
-    train_dataset = MIICDataset(args_miic, split="test")
+    train_dataset = MiicDataset(args_miic, split="test")
     test_dataset = CPSAD2DDataset(args, split="test")
 
 
@@ -63,7 +63,7 @@ def test_model_create_train():
     model.float()
     model.to(device)
 
-    training_args = AnomalyCLIPTrainArgs(batch_size=8, epochs=15, evaluation_epoch_interval=15)
+    training_args = AnomalyCLIPArgs(batch_size=8, epochs=15, evaluation_epoch_interval=15)
     training_args.init_train(model)
 
     trainer = Trainer(
