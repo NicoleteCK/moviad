@@ -135,5 +135,5 @@ class AnomalyCLIPTrainer(Trainer):
         # Final save if no criteria specified
         if self.saving_criteria is None and self.save_path is not None:
             print("Saving final model...")
-            self.model.save(self.save_path)
+            self.model.save_model(self.save_path)
             print(f"Model saved to {self.save_path}")

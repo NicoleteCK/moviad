@@ -131,7 +131,7 @@ class AnomalyCLIPModel(VADModel):
             images: Input images [B, C, H, W]
             
         Returns:
-            Dictionary containing anomaly maps and scores
+            anomaly maps and scores
         """
         with torch.no_grad():
 
@@ -206,11 +206,9 @@ class AnomalyCLIPModel(VADModel):
         Returns:
             Loss value
         """
-        image = batch.to(self.device)
-
-        #Label and gt are normal
-        label = torch.zeros(image.shape[0], device=self.device)
-        gt = torch.zeros(image.shape[0], self.image_size, self.image_size, device=self.device)
+        image = batch[0].to(self.device)
+        label = batch[1].to(self.device)
+        gt = batch[2].to(self.device)
         
         # Binarize ground truth
         gt[gt > 0.5] = 1
@@ -316,7 +314,7 @@ class AnomalyCLIPModel(VADModel):
         self.prompt_learner.to(self.device)
         self.model.to(self.device)
     
-    def save(self, save_path: str):
+    def save_model(self, save_path: str):
         """
         Save the model (only prompt learner parameters).
         

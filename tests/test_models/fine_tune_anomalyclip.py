@@ -2,6 +2,7 @@ def test_model_create_train():
     from moviad.models.anomalyclip.anomalyclip import AnomalyCLIPModel , AnomalyCLIPArgs
     from moviad.models.training_args import TrainingArgs
     from moviad.trainers.trainer import Trainer
+    from moviad.trainers.trainer_anomalyclip import AnomalyCLIPTrainer
     from moviad.datasets.cps_ad2d.cpsad2d_dataset import CPSAD2DDataset
     from moviad.datasets.miic.miic_dataset import MiicDataset
     from moviad.datasets.dataset_arguments import DatasetArguments
@@ -66,7 +67,7 @@ def test_model_create_train():
     training_args = AnomalyCLIPArgs(batch_size=8, epochs=15, evaluation_epoch_interval=15)
     training_args.init_train(model)
 
-    trainer = Trainer(
+    trainer = AnomalyCLIPTrainer(
         training_args,
         model,
         train_dataset,
