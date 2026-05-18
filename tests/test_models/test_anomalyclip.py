@@ -41,8 +41,6 @@ def test_model_create_train():
     print(f"Train dataset size: {len(train_dataset)}")
     print(f"Test dataset size: {len(test_dataset)}")
 
-    path_to_checkpoint = "/Users/nicolaberti/GitHub/ZSAD-Thesis/external/moviad/src/moviad/models/anomalyclip/AnomalyCLIP_lib/epoch_15_visa.pth"
-
 
     model = AnomalyCLIPModel(
         device=device,
@@ -57,7 +55,6 @@ def test_model_create_train():
         checkpoint= "mvctec", # or "visa" or None
         sigma = 4
     )
-    model.float()
     model.to(device)
     model.eval()
 
@@ -65,7 +62,7 @@ def test_model_create_train():
         test_dataset,
         batch_size=1,
         shuffle=False,
-        num_workers=4
+        num_workers=2
     ) 
 
     results = Evaluator.evaluate(model, test_dataloader, metrics=[
@@ -87,6 +84,9 @@ def test_model_create_train():
 
 
 def setup_seed(seed):
+    import torch
+    import random
+    import numpy as np
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
     np.random.seed(seed)

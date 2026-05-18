@@ -61,14 +61,13 @@ def test_model_create_train():
         checkpoint= None,
         sigma = 4
     )
-    model.float()
     model.to(device)
 
     test_dataloader = torch.utils.data.DataLoader(
         train_dataset,
-        batch_size=1,
+        batch_size=8,
         shuffle=False,
-        num_workers=4
+        num_workers=2
     ) 
 
     results = Evaluator.evaluate(model, test_dataloader, metrics=[
@@ -85,7 +84,7 @@ def test_model_create_train():
 
     if wandb:
         wandb.log({
-                f"/test/{metric_name}": value for metric_name, value in results.items()
+                f"/train/{metric_name}": value for metric_name, value in results.items()
             })
 
     training_args = AnomalyCLIPArgs(batch_size=8, epochs=15, evaluation_epoch_interval=15)
@@ -95,7 +94,7 @@ def test_model_create_train():
         training_args,
         model,
         train_dataset,
-        train_dataset,
+        test_dataset,
         metrics=[
             RocAuc(MetricLvl.IMAGE),
             RocAuc(MetricLvl.PIXEL),
@@ -114,7 +113,20 @@ def test_model_create_train():
     trainer.train()
 
 
+def setup_seed(seed):
+    import torch
+    import random
+    import numpy as np
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    np.random.seed(seed)
+    random.seed(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+
+
 if __name__ == '__main__':
+    setup_seed(42)
     test_model_create_train()
     
 

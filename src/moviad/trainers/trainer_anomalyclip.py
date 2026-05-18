@@ -92,6 +92,8 @@ class AnomalyCLIPTrainer(Trainer):
                 self.train_dataloader, 
                 self.train_args
             )
+
+            self.training_args.scheduler.step(avg_batch_loss) 
             
             # Log training loss
             if self.logger:

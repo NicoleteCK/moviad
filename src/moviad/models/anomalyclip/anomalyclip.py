@@ -20,15 +20,26 @@ from .loss import FocalLoss, BinaryDiceLoss
 class AnomalyCLIPArgs(TrainingArgs):
 
     def init_train(self, model):
-        if not self.optimizer:
+        if not hasattr(self, 'optimizer') or self.optimizer is None:
             self.optimizer = torch.optim.Adam(
                 list(model.prompt_learner.parameters()),
                 lr=0.001,
                 betas=(0.5, 0.999)
             )
+        
+        # Inizializzazione del ReduceLROnPlateau Scheduler
+        if not hasattr(self, 'scheduler') or self.scheduler is None:
+            self.scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+                self.optimizer,
+                mode='min',       
+                factor=0.5,       
+                patience=3,       
+                verbose=True      
+            )
     def __to_dict__(self):
         return {
-            "optimizer": self.optimizer_to_dict(self.optimizer) if self.optimizer else None,
+            "optimizer": self.optimizer_to_dict(self.optimizer) if hasattr(self, 'optimizer') and self.optimizer else None,
+            "scheduler": self.scheduler.state_dict() if hasattr(self, 'scheduler') and self.scheduler else None
         }
 
 class AnomalyCLIPModel(VADModel):
@@ -136,12 +147,13 @@ class AnomalyCLIPModel(VADModel):
         if len(images.shape) == 3:
             images = images.unsqueeze(0)  # Add batch dimension if missing
 
-        image_features, patch_features = self.model.encode_image(
-            images, 
-            self.features_list, 
-            DPAM_layer=self.dpam_layer
-        )
-        image_features = image_features / image_features.norm(dim=-1, keepdim=True)
+        with torch.no_grad():
+            image_features, patch_features = self.model.encode_image(
+                images, 
+                self.features_list, 
+                DPAM_layer=self.dpam_layer
+            )
+            image_features = image_features / image_features.norm(dim=-1, keepdim=True)
         
         # Get text features from learned prompts
         prompts, tokenized_prompts, compound_prompts_text = self.prompt_learner(cls_id=None)
@@ -173,9 +185,9 @@ class AnomalyCLIPModel(VADModel):
                     similarity[:, 1:, :], 
                     self.image_size
                 ).permute(0, 3, 1, 2)
-                similarity_map_list.append(anomaly_map)
+                similarity_map_list.append(similarity_map)
         
-        if self.training:
+        if self.prompt_learner.training:
             return text_probs, similarity_map_list
         
         else:
@@ -222,7 +234,10 @@ class AnomalyCLIPModel(VADModel):
         text_probs, similarity_map_list = self(image)
 
         # Compute image-level anomaly detection loss
-        image_loss = F.cross_entropy(text_probs.squeeze(), label.long())
+        if text_probs.shape[1] == 1:
+            text_probs = text_probs.squeeze(1)
+
+        image_loss = F.cross_entropy(text_probs, label.long())
            
         # Compute segmentation losses
         seg_loss = 0
