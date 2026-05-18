@@ -244,7 +244,7 @@ class MiicDataset(VADDataset):
         assert bounding_box_root_path.exists(), \
             f"Bounding box root path {bounding_box_root_path} does not exist"
 
-        normal_image_file_list = list(normal_images_root_path.glob('**/*.jpg'))
+        normal_image_file_list = sorted(list(normal_images_root_path.glob('**/*.jpg')))
         abnormal_image_file_list = sorted(list(abnormal_image_root_path.glob('**/*.jpg')), key=lambda x: x)
         mask_file_list = sorted(list(mask_root_path.glob('**/*.jpg')), key=lambda x: x)
         bounding_box_file_list = sorted(list(bounding_box_root_path.glob('**/*.jpg')), key=lambda x: x)

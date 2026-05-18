@@ -31,14 +31,14 @@ def test_model_create_train():
 
 
     args = DatasetArguments(
-        dataset_path = "/Users/nicolaberti/Documents/Datasets/CPS-AD2D",
+        dataset_path = "/content/cspad2d/CPS-AD2D",
         img_size = (224, 224),
         gt_mask_size = (224, 224),
         image_transform_list = transform_list
     )
 
     args_miic = DatasetArguments(
-        dataset_path = "/Users/nicolaberti/Documents/Datasets/MIIC",
+        dataset_path = "/content/drive/MyDrive/MIIC",
         img_size = (224, 224),
         gt_mask_size = (224, 224),
         image_transform_list = transform_list
@@ -64,6 +64,30 @@ def test_model_create_train():
     model.float()
     model.to(device)
 
+    test_dataloader = torch.utils.data.DataLoader(
+        train_dataset,
+        batch_size=1,
+        shuffle=False,
+        num_workers=4
+    ) 
+
+    results = Evaluator.evaluate(model, test_dataloader, metrics=[
+            RocAuc(MetricLvl.IMAGE),
+            RocAuc(MetricLvl.PIXEL),
+            AvgPrec(MetricLvl.IMAGE),
+            AvgPrec(MetricLvl.PIXEL),
+            F1(MetricLvl.IMAGE),
+            F1(MetricLvl.PIXEL),
+            ProAuc(MetricLvl.PIXEL),
+        ], device=device )
+    
+    print("Report finale:", results)
+
+    if wandb:
+        wandb.log({
+                f"/test/{metric_name}": value for metric_name, value in results.items()
+            })
+
     training_args = AnomalyCLIPArgs(batch_size=8, epochs=15, evaluation_epoch_interval=15)
     training_args.init_train(model)
 
@@ -71,7 +95,7 @@ def test_model_create_train():
         training_args,
         model,
         train_dataset,
-        test_dataset,
+        train_dataset,
         metrics=[
             RocAuc(MetricLvl.IMAGE),
             RocAuc(MetricLvl.PIXEL),
@@ -83,7 +107,7 @@ def test_model_create_train():
         ],
         device=device,
         logger=wandb,
-        save_path="/Users/nicolaberti/GitHub/ZSAD-Thesis/external/moviad/src/moviad/models/anomalyclip/AnomalyCLIP_lib/epoch_15_miic.pth",
+        save_path="/content/epoch_15_miic.pth",
         saving_criteria=None,
     )
 

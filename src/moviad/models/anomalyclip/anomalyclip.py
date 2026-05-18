@@ -132,69 +132,73 @@ class AnomalyCLIPModel(VADModel):
             
         Returns:
             anomaly maps and scores
-        """
-        with torch.no_grad():
+    """
+        if len(images.shape) == 3:
+            images = images.unsqueeze(0)  # Add batch dimension if missing
 
-            if len(images.shape) == 3:
-                images = images.unsqueeze(0)  # Add batch dimension if missing
+        image_features, patch_features = self.model.encode_image(
+            images, 
+            self.features_list, 
+            DPAM_layer=self.dpam_layer
+        )
+        image_features = image_features / image_features.norm(dim=-1, keepdim=True)
+        
+        # Get text features from learned prompts
+        prompts, tokenized_prompts, compound_prompts_text = self.prompt_learner(cls_id=None)
+        text_features = self.model.encode_text_learn(
+            prompts, 
+            tokenized_prompts, 
+            compound_prompts_text
+        ).float()
+        
+        text_features = torch.stack(
+            torch.chunk(text_features, dim=0, chunks=2), 
+            dim=1
+        )
+        text_features = text_features / text_features.norm(dim=-1, keepdim=True)
+        # Compute image-level anomaly scores
+        text_probs = image_features.unsqueeze(1) @ text_features.permute(0, 2, 1)
+        text_probs = text_probs[:, 0, ...] / 0.07
 
-            image_features, patch_features = self.model.encode_image(
-                images, 
-                self.features_list, 
-                DPAM_layer=self.dpam_layer
-            )
-            image_features = image_features / image_features.norm(dim=-1, keepdim=True)
-            
-            # Get text features from learned prompts
-            prompts, tokenized_prompts, compound_prompts_text = self.prompt_learner(cls_id=None)
-            text_features = self.model.encode_text_learn(
-                prompts, 
-                tokenized_prompts, 
-                compound_prompts_text
-            ).float()
-            
-            text_features = torch.stack(
-                torch.chunk(text_features, dim=0, chunks=2), 
-                dim=1
-            )
-            text_features = text_features / text_features.norm(dim=-1, keepdim=True)
-            # Compute image-level anomaly scores
-            text_probs = image_features.unsqueeze(1) @ text_features.permute(0, 2, 1)
-            text_probs = text_probs[:, 0, ...] / 0.07
-            anomaly_scores = F.softmax(text_probs, dim=-1)[:, 1]  # Probability of anomaly class
-            
-            # Generate multi-scale anomaly maps
-            similarity_map_list = []
-            for idx, patch_feature in enumerate(patch_features):
-                if idx >= self.feature_map_layer[0]:
-                    patch_feature = patch_feature / patch_feature.norm(dim=-1, keepdim=True)
-                    similarity, _ = AnomalyCLIP_lib.compute_similarity(
-                        patch_feature, 
-                        text_features[0]
-                    )
-                    similarity_map = AnomalyCLIP_lib.get_similarity_map(
-                        similarity[:, 1:, :], 
-                        self.image_size
-                    ).permute(0, 3, 1, 2)
-                    anomaly_map = (similarity_map[:, 1, :, :] + 1 - similarity_map[:, 0, :, :])/2.0
-                    similarity_map_list.append(anomaly_map)
-            
+        # Generate multi-scale anomaly maps
+        similarity_map_list = []
+        for idx, patch_feature in enumerate(patch_features):
+            if idx >= self.feature_map_layer[0]:
+                patch_feature = patch_feature / patch_feature.norm(dim=-1, keepdim=True)
+                similarity, _ = AnomalyCLIP_lib.compute_similarity(
+                    patch_feature, 
+                    text_features[0]
+                )
+                similarity_map = AnomalyCLIP_lib.get_similarity_map(
+                    similarity[:, 1:, :], 
+                    self.image_size
+                ).permute(0, 3, 1, 2)
+                similarity_map_list.append(anomaly_map)
+        
+        if self.training:
+            return text_probs, similarity_map_list
+        
+        else:
+            anomaly_scores = F.softmax(text_probs, dim=-1)[:, 1]
+
             # Aggregate anomaly maps
             if len(similarity_map_list) > 0:
-                # Average across different scales
-                anomaly_map = torch.stack(similarity_map_list)
-                anomaly_map = anomaly_map.sum(dim = 0)
-                anomaly_map = torch.stack([torch.from_numpy(gaussian_filter(i, sigma = self.sigma)) for i in anomaly_map.detach().cpu()], dim = 0 )
+                anomaly_maps_scaled = []
+                for similarity_map in similarity_map_list:
+                    am = (similarity_map[:, 1, :, :] + 1 - similarity_map[:, 0, :, :]) / 2.0
+                    anomaly_maps_scaled.append(am)
+                
+                anomaly_map = torch.stack(anomaly_maps_scaled).sum(dim=0)
+                # Apply Gaussian smoothing to anomaly map
+                anomaly_map = torch.stack([
+                    torch.from_numpy(gaussian_filter(i, sigma=self.sigma)) 
+                    for i in anomaly_map.detach().cpu()
+                ], dim=0)
             else:
-                anomaly_map = torch.zeros(
-                    images.shape[0], 
-                    self.image_size, 
-                    self.image_size,
-                    device=self.device
-                )
+                anomaly_map = torch.zeros(images.shape[0], self.image_size, self.image_size, device=self.device)
         
-        return anomaly_map, anomaly_scores
-    
+            return anomaly_map, anomaly_scores
+        
     def train_step(self, batch: torch.Tensor , training_args: TrainingArgs):
         """
         Single training step.
@@ -214,49 +218,12 @@ class AnomalyCLIPModel(VADModel):
         gt[gt > 0.5] = 1
         gt[gt <= 0.5] = 0
         
-        # Extract image features (frozen)
-        with torch.no_grad():
-            image_features, patch_features = self.model.encode_image(
-                image, 
-                self.features_list, 
-                DPAM_layer=self.dpam_layer
-            )
-            image_features = image_features / image_features.norm(dim=-1, keepdim=True)
-        
-        # Get learnable text features
-        prompts, tokenized_prompts, compound_prompts_text = self.prompt_learner(cls_id=None)
-        text_features = self.model.encode_text_learn(
-            prompts, 
-            tokenized_prompts, 
-            compound_prompts_text
-        ).float()
-        
-        text_features = torch.stack(
-            torch.chunk(text_features, dim=0, chunks=2), 
-            dim=1
-        )
-        text_features = text_features / text_features.norm(dim=-1, keepdim=True)
-        
-        # Image-level classification loss
-        text_probs = image_features.unsqueeze(1) @ text_features.permute(0, 2, 1)
-        text_probs = text_probs[:, 0, ...] / 0.07
+        # Forward pass
+        text_probs, similarity_map_list = self(image)
+
+        # Compute image-level anomaly detection loss
         image_loss = F.cross_entropy(text_probs.squeeze(), label.long())
-        
-        # Pixel-level segmentation loss
-        similarity_map_list = []
-        for idx, patch_feature in enumerate(patch_features):
-            if idx >= self.feature_map_layer[0]:
-                patch_feature = patch_feature / patch_feature.norm(dim=-1, keepdim=True)
-                similarity, _ = AnomalyCLIP_lib.compute_similarity(
-                    patch_feature, 
-                    text_features[0]
-                )
-                similarity_map = AnomalyCLIP_lib.get_similarity_map(
-                    similarity[:, 1:, :], 
-                    self.image_size
-                ).permute(0, 3, 1, 2)
-                similarity_map_list.append(similarity_map)
-        
+           
         # Compute segmentation losses
         seg_loss = 0
         for similarity_map in similarity_map_list:
