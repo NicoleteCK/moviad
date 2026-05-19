@@ -27,19 +27,9 @@ class AnomalyCLIPArgs(TrainingArgs):
                 betas=(0.5, 0.999)
             )
         
-        # Inizializzazione del ReduceLROnPlateau Scheduler
-        if not hasattr(self, 'scheduler') or self.scheduler is None:
-            self.scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-                self.optimizer,
-                mode='min',       
-                factor=0.5,       
-                patience=3,       
-                verbose=True      
-            )
     def __to_dict__(self):
         return {
             "optimizer": self.optimizer_to_dict(self.optimizer) if hasattr(self, 'optimizer') and self.optimizer else None,
-            "scheduler": self.scheduler.state_dict() if hasattr(self, 'scheduler') and self.scheduler else None
         }
 
 class AnomalyCLIPModel(VADModel):
@@ -53,7 +43,6 @@ class AnomalyCLIPModel(VADModel):
     def __init__(
         self,
         device: torch.device,
-        image_size: int = 224,
         features_list: list = [6, 12, 18, 24],
         feature_map_layer: list = [0, 1, 2, 3],
         dpam_layer: int = 20,
@@ -69,7 +58,6 @@ class AnomalyCLIPModel(VADModel):
         
         Args:
             device: Device to run the model on
-            image_size: Input image size
             features_list: Feature layers to extract from vision encoder
             feature_map_layer: Layers to use for anomaly map generation
             dpam_layer: Number of layers to apply DPAM (Dual-Path Attention Module)
@@ -81,7 +69,6 @@ class AnomalyCLIPModel(VADModel):
         super().__init__()
         
         self.device = device
-        self.image_size = image_size
         self.features_list = features_list
         self.feature_map_layer = feature_map_layer
         self.dpam_layer = dpam_layer
@@ -146,6 +133,8 @@ class AnomalyCLIPModel(VADModel):
     """
         if len(images.shape) == 3:
             images = images.unsqueeze(0)  # Add batch dimension if missing
+        
+        self.image_size = images.shape[2]  # Update image size based on input
 
         with torch.no_grad():
             image_features, patch_features = self.model.encode_image(

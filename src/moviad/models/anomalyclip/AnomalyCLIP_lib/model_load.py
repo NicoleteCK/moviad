@@ -250,6 +250,8 @@ def download_prompt_learner(name: str, cache_dir: str = None) -> str:
         cache_dir = os.path.expanduser("~/.cache/anomaly_clip")
 
     if name.lower() not in _CHECKPOINTS:
+        if os.path.isfile(name):
+            return name
         raise ValueError(f"Model {name} not found. Available: {list(_MODELS.keys())}")
 
     model_info = _CHECKPOINTS[name.lower()]
