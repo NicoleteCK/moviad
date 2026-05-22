@@ -130,7 +130,7 @@ class AnomalyCLIPModel(VADModel):
             
         Returns:
             anomaly maps and scores
-    """
+        """
         if len(images.shape) == 3:
             images = images.unsqueeze(0)  # Add batch dimension if missing
         
