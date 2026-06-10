@@ -74,6 +74,7 @@ CLASS_NAMES = {
     ],
     "BTAD": ["01", "02", "03"],
     "CPS-AD2D": ["CPS-AD2D"],
+    "MIIC": ["MIIC"],
 }       
 DOMAINS = {
     "VisA": "Industrial",
@@ -81,6 +82,7 @@ DOMAINS = {
     "MVTec": "Industrial",
     "RSDD": "Industrial",
     "CPS-AD2D": "Industrial",
+    "MIIC": "Industrial",
     "DTD-Synthetic": "Industrial",
     "Brain": "Medical",
     "Liver": "Medical",
@@ -159,6 +161,7 @@ REAL_NAMES = {
         "03": "oval concentric circular rings in gradient shades of blue and white",
     },
     "CPS-AD2D": {"CPS-AD2D": "ceramic package substrate"},
+    "MIIC": {"MIIC": "microscopic integrated circuit metal layer"},
 }
 PROMPTS = {
     "prompt_normal": ["{}", "a {}", "the {}"],

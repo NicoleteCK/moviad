@@ -3,7 +3,6 @@ import torch.nn as nn
 import numpy as np
 import torch.nn.functional as F
 from typing import Dict, List, Optional, Tuple
-import open_clip
 import os
 from torch.optim.lr_scheduler import MultiStepLR
 from tqdm import tqdm
@@ -13,16 +12,16 @@ from moviad.models.vad_model import VADModel
 from moviad.models.training_args import TrainingArgs
 
 # Import from MoE-CLIP
-from utils import setup_seed
-from MoECLIP.moe_adapter import MoECLIP
-from MoECLIP.clip import create_model
-from forward_utils import (
+from .utils import setup_seed
+from .MoECLIP.moe_adapter import MoECLIP
+from .MoECLIP.clip import create_model
+from .forward_utils import (
     get_adapted_single_class_text_embedding,
     calculate_similarity_map,
     calculate_seg_loss,
     get_adapted_text_embedding
 )
-from constants import DATASETS, DOMAINS, REAL_NAMES, PROMPTS , CLASS_NAMES
+from .constants import DOMAINS, REAL_NAMES, PROMPTS , CLASS_NAMES
 
 
 
@@ -31,14 +30,14 @@ class MoECLIPArgs(TrainingArgs):
     def init_train(self, model):
         
         if not hasattr(self, 'optimizer') or self.optimizer is None:
-            optimizer = torch.optim.Adam(
+            self.optimizer = torch.optim.Adam(
                 model.params_to_train,
-                lr = self.learning_rate,
+                lr = 5e-4,
                 betas = (0.5, 0.999)
             )
 
         if not hasattr(self, 'scheduler') or self.scheduler is None:
-            scheduler = MultiStepLR(optimizer, milestones=[16000, 32000], gamma=0.5)
+            self.scheduler = MultiStepLR(self.optimizer, milestones=[10, 15], gamma=0.5)
 
     
     def __to_dict__(self):
@@ -68,7 +67,6 @@ class MoECLIPModel(VADModel):
         etf_loss_lambda: float = 0.01,
         checkpoint_path: str = None,
         dataset: str = None,
-        category: str = None
     ):  
         '''Initialize the MoECLIPModel
 
@@ -105,10 +103,10 @@ class MoECLIPModel(VADModel):
         self.relu = relu
         self.checkpoint_path = checkpoint_path
         self.dataset = dataset
-        self.category = category
         self.balance_loss_lambda = balance_loss_lambda
         self.etf_loss_lambda = etf_loss_lambda
         self.adapt_text = False 
+        self.category = None
 
         self.cached_class_text_embedding = None
 
@@ -119,6 +117,8 @@ class MoECLIPModel(VADModel):
             pretrained= 'openai',
             require_pretrained = True,
         )
+
+        self.clip_model.eval()
 
         self.model = MoECLIP(
             clip_model=self.clip_model,
@@ -146,8 +146,8 @@ class MoECLIPModel(VADModel):
                 self.adapt_text = True 
             if "image_adapter" in checkpoint:
                 self.model.image_adapter.load_state_dict(checkpoint["image_adapter"])
-            if "optimizer_state_dict" in checkpoint:
-                self.optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+            '''if "optimizer_state_dict" in checkpoint:
+                self.optimizer.load_state_dict(checkpoint["optimizer_state_dict"])'''
         
         self._prepare_text_embeddings()
     
@@ -161,7 +161,7 @@ class MoECLIPModel(VADModel):
                 self.cached_class_text_embedding = get_adapted_single_class_text_embedding(
                     text_encoder_model, self.dataset, self.category, self.device
                 )
-                print(f"[MoE-CLIP] Successfully generated cached text embeddings for class: {self.category}")
+                #print(f"[MoE-CLIP] Successfully generated cached text embeddings for class: {self.category}")
             else:
                 # Fallback mechanism if MoViAD category string is missing from constants.py
                 print(f"[MoE-CLIP] Warning: Category '{self.category}' not found in CLASS_NAMES[{self.dataset}].")
@@ -214,6 +214,11 @@ class MoECLIPModel(VADModel):
         image = batch[0].to(self.device)
         label = batch[1].to(self.device)
         gt_mask = batch[2].to(self.device)
+        category = batch[4][0]  # Assuming all samples in the batch belong to the same category
+
+        if self.category != category:
+            self.category = category
+            self._prepare_text_embeddings()  # Update cached text embeddings for the new category
 
         epoch_text_feature = self.cached_class_text_embedding
 
@@ -233,9 +238,11 @@ class MoECLIPModel(VADModel):
         loss += aux_loss * self.balance_loss_lambda
         loss += special_loss * self.etf_loss_lambda
         # backward
-        self.optimizer.zero_grad()
+        training_args.optimizer.zero_grad()
         loss.backward()
-        self.optimizer.step()
+        training_args.optimizer.step()
+        
+        return loss.item()
     
     def train_epoch(self, epoch, train_dataloader, training_args: MoECLIPArgs):
 
@@ -246,13 +253,17 @@ class MoECLIPModel(VADModel):
             avg_batch_loss += self.train_step(batch, training_args)
 
         avg_batch_loss /= len(train_dataloader)
+
+        if training_args.scheduler is not None:
+            training_args.scheduler.step()
+            
         return avg_batch_loss
 
 
-    def save(self, save_path: str):
+    def save(self, save_path: str, training_args: MoECLIPArgs):
         
         checkpoint = {
-            "optimizer_state_dict": self.optimizer.state_dict(),
+            "optimizer_state_dict": training_args.optimizer.state_dict(),
             "text_adapter": self.model.text_adapter.state_dict(),
             "image_adapter": self.model.image_adapter.state_dict(),
         }
@@ -306,7 +317,7 @@ class MoECLIPModel(VADModel):
         params_to_train.append({"params": model.text_adapter.parameters()})    
 
         image_params = []
-        if model.no_use_fofs:
+        if self.use_fofs:
             for name, param in model.image_adapter.named_parameters():
                 if "lora_A" in name:
                     param.requires_grad = False 

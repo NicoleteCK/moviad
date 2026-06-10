@@ -113,7 +113,7 @@ def create_model(
         cast_dtype = get_cast_dtype(precision)
 
         model_pre = load_openai_model(
-            name = _MODEL_CKPT_PATHS[model_name],
+            name = model_name,
             precision=precision,
             device=device,
             jit=jit,

@@ -36,14 +36,16 @@ class Evaluator:
         model.eval()
 
         gt_mask, gt_label, pred_anom_map, pred_anom_score = [], [], [], []
+        
 
-        for image, label, mask, path in tqdm(dataloader, desc="Eval"):
+        for image, label, mask, path, category in tqdm(dataloader, desc="Eval"):
             with torch.no_grad():
                 anom_maps, anom_scores = model(image.to(device))
             gt_mask.append(mask.cpu().numpy().astype(int))
             gt_label.append(label.cpu().numpy())
             pred_anom_map.append(anom_maps.cpu().numpy())
             pred_anom_score.append(anom_scores.cpu().numpy())
+
 
         gt_mask = np.concatenate(gt_mask)
         gt_label = np.concatenate(gt_label)

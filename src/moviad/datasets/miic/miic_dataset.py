@@ -136,7 +136,7 @@ class MiicDataset(VADDataset):
             int: The number of samples in the dataset.
         """
         return len(self.data)
-
+    
     def __getitem__(self, idx):
         """
         Get a sample from the dataset.
@@ -180,7 +180,8 @@ class MiicDataset(VADDataset):
         else:
             mask = torch.zeros((1, *self.dataset_arguments.gt_mask_size), dtype=torch.float32)
 
-        return image, label, mask, path
+        return image, label, mask, path , "semiconductor"
+    
 
     def load_dataset(self):
         """Load the dataset based on the specified split."""
@@ -257,7 +258,7 @@ class MiicDataset(VADDataset):
             raise FileNotFoundError(f"No images found in {mask_root_path}")
 
         # Load normal images
-        for image in normal_image_file_list:
+        for image in normal_image_file_list[:116]:
             image_entry = MiicDatasetEntry(image)
             if self.preload_images:
                 with PIL.Image.open(image_entry.image_path) as img:

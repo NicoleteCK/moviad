@@ -43,7 +43,7 @@ class VISADataset(VADDataset):
 
     def __len__(self):
         return len(self.df)
-
+    '''
     def __getitem__(self, index):
         path = os.path.join(self.dataset_root, self.df.iloc[index]["image"])
         image = self.transform_image(
@@ -67,7 +67,48 @@ class VISADataset(VADDataset):
                     mask > 0.0, torch.ones_like(mask), torch.zeros_like(mask)
                 )
 
-            return image, label, mask, path
+            return image, label, mask, path, self.category
+    '''
+    def __getitem__(self, index):
+        path = os.path.join(self.dataset_root, self.df.iloc[index]["image"])
+        raw_image = Image.open(path).convert("RGB")
+        
+        label = LabelName.NORMAL if self.df.iloc[index]["label"] == "normal" else LabelName.ABNORMAL
+
+        # 1. Recupero o generazione della maschera base in formato PIL
+        if label == LabelName.NORMAL:
+            # Creiamo una maschera PIL nera della dimensione corretta
+            raw_mask = Image.new("L", self.dataset_arguments.gt_mask_size, 0)
+        else:
+            mask_path = os.path.join(self.dataset_root, self.df.iloc[index]["mask"])
+            raw_mask = Image.open(mask_path).convert("L")
+
+        # 2. Applicazione del ridimensionamento e delle trasformazioni di colore (Solo su Immagine)
+        image = self.transform_image_pil(raw_image)
+        mask = self.transform_mask_pil(raw_mask)
+
+        # 3. SINCRONIZZAZIONE GEOMETRICA (Blocco del seed su PIL Image)
+        state = torch.get_rng_state()
+        image = self.transform_geometry(image)
+        
+        torch.set_rng_state(state)
+        mask = self.transform_geometry(mask)
+
+        # 4. CONVERSIONE IN TENSORI E BINARIZZAZIONE MASCHERA
+        image = self.to_tensor(image)
+        mask = self.to_tensor(mask)  # Tensore [1, H, W]
+
+        # Sostituisce la logica torch.where per garantire che la maschera sia puramente binaria (0 o 1)
+        mask = torch.where(mask > 0.0, torch.ones_like(mask), torch.zeros_like(mask))
+
+        # 5. NORMALIZZAZIONE FINALE (Solo sull'immagine)
+        image = self.normalize(image)
+
+        # 6. OUTPUT IN BASE ALLO SPLIT
+        if self.split == Split.TRAIN:
+            return image
+        else:
+            return image, label, mask.int(), path, self.category
 
     @staticmethod
     def get_categories() -> list:

@@ -54,6 +54,7 @@ class CPSAD2DDataset(VADDataset):
 
         self.dataset_root = Path(self.dataset_arguments.dataset_path)
         self.samples: pd.DataFrame = None
+        self.category = "CPS-AD2D"
         self.load_dataset()
     
     def is_loaded(self) -> bool:
@@ -204,7 +205,7 @@ class CPSAD2DDataset(VADDataset):
             if self.split == Split.TRAIN:
                 return image
             else:
-                return image, label, mask.int(), path
+                return image, label, mask.int(), path , self.category
         
     def __len__(self) -> int:
         if self.samples is None:

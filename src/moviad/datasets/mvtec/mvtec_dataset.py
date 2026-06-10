@@ -182,7 +182,7 @@ class MVTecDataset(VADDataset):
         source.samples = source.samples.drop(contaminated_entries_indices).reset_index(drop=True)
         source.data = [source.data[i] for i in range(len(source.data)) if i not in contaminated_entries_indices]
         return contamination_set_size
-
+    
     def __getitem__(self, index: int):
         """
         Args:
@@ -216,7 +216,7 @@ class MVTecDataset(VADDataset):
             else:
                 mask = torch.zeros(1, *self.dataset_arguments.img_size)
 
-            return image, label, mask.int(), path
+            return image, label, mask.int(), path , self.category 
 
     @staticmethod
     def get_categories() -> list:

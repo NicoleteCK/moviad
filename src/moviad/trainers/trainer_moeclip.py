@@ -83,6 +83,7 @@ class MoECLIPTrainer(Trainer):
                 self.train_dataloader, 
                 self.train_args
             )
+            print(f"Average training loss: {avg_batch_loss:.4f}")
 
             # Log training loss
             if self.logger:
@@ -127,5 +128,5 @@ class MoECLIPTrainer(Trainer):
         # Final save if no criteria specified
         if self.saving_criteria is None and self.save_path is not None:
             print("Saving final model...")
-            self.model.save(self.save_path)
+            self.model.save(self.save_path, self.train_args)
             print(f"Model saved to {self.save_path}")
