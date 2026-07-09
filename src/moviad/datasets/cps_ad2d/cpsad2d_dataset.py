@@ -28,7 +28,8 @@ IMG_SIZE = (3, 270, 480)
 
 PATCH_SIZE = 224
 
-"""Create CPS-AD2D samples by parsing the CPS-AD2D data file structure.
+"""
+Create CPS-AD2D samples by parsing the CPS-AD2D data file structure.
 
     The files are expected to follow the structure:
         path/to/dataset/category/images/train/image_filename.jpg
@@ -37,6 +38,7 @@ PATCH_SIZE = 224
 """
 
 class CPSAD2DDataset(VADDataset):
+
     """CPS-AD2D dataset class."""
 
     def __init__(
@@ -54,13 +56,14 @@ class CPSAD2DDataset(VADDataset):
 
         self.dataset_root = Path(self.dataset_arguments.dataset_path)
         self.samples: pd.DataFrame = None
-        self.category = "CPS-AD2D"
+        self.category = "ceramic package substrate"
         self.load_dataset()
     
     def is_loaded(self) -> bool:
         return self.samples is not None
     
     def load_dataset(self):
+
         if self.is_loaded():
             print("Dataset is already loaded.")
             return
@@ -68,6 +71,7 @@ class CPSAD2DDataset(VADDataset):
         all_samples = []
         
         for category_path in self.dataset_root.iterdir():
+
             if not category_path.is_dir(): continue
             
             category_name = category_path.name
@@ -142,9 +146,6 @@ class CPSAD2DDataset(VADDataset):
 
         num_train_normal = int(len(df_normal_all) * train_ratio)
         
-        # Shuffle and selection
-        if len(df_normal_all) < num_train_normal:
-            raise ValueError(f"Dataset insufficient: requested {num_train_normal} normal, present {len(df_normal_all)}.")
         
         df_normal_shuffled = df_normal_all.sample(frac=1, random_state=seed)
         train_indices = df_normal_shuffled.index[:num_train_normal]
@@ -164,6 +165,7 @@ class CPSAD2DDataset(VADDataset):
 
         # Set split labels
         df['split'] = 'excluded' 
+
         df.loc[train_indices, 'split'] = "train"
         df.loc[test_indices, 'split'] = "test"
 
@@ -172,6 +174,7 @@ class CPSAD2DDataset(VADDataset):
         return df[df['split'] == target_split].reset_index(drop=True)
     
     def __getitem__(self, index: int):
+
             """
             Args:
                 index (int): indice dell'elemento da restituire
@@ -179,6 +182,7 @@ class CPSAD2DDataset(VADDataset):
                 TRAIN: image, 
                 TEST: image, label, mask, path
             """
+
             if self.samples is None:
                 self.load_dataset()
 
@@ -205,11 +209,13 @@ class CPSAD2DDataset(VADDataset):
             if self.split == Split.TRAIN:
                 return image
             else:
-                return image, label, mask.int(), path , self.category
+                return image, label, mask.int(), path
         
     def __len__(self) -> int:
+
         if self.samples is None:
             return 0
+            
         return len(self.samples)
             
             
