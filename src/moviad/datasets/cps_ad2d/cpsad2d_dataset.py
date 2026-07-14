@@ -1,14 +1,10 @@
-import math
 from pathlib import Path
 
-import numpy as np
 import pandas as pd
 from PIL import Image
 import torch
-from torchvision.transforms import transforms
 
 from moviad.datasets.vad_dataset import VADDataset
-from moviad.datasets.exceptions.exceptions import DatasetTooSmallToContaminateException
 from moviad.utilities.configurations import Split, LabelName
 from moviad.datasets.dataset_arguments import DatasetArguments
 

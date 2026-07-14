@@ -1,5 +1,5 @@
 from torch import nn
-from .CLIP import CLIP
+from moviad.backbones.clip.CLIP import CLIP
 from .AnomalyCLIP import AnomalyCLIP
 
 def build_model(name: str, state_dict: dict, design_details = None):
