@@ -1,7 +1,3 @@
-"""
-Trainer for AnomalyCLIP model adapted to MOVIAD framework.
-"""
-
 import torch
 from typing import Any, Callable
 
@@ -13,12 +9,6 @@ from moviad.utilities.evaluation.evaluator import Evaluator
 
 
 class AnomalyCLIPTrainer(Trainer):
-    """
-    Trainer class for AnomalyCLIP model.
-    
-    This trainer extends the base MOVIAD Trainer with specific
-    configurations for AnomalyCLIP's prompt learning approach.
-    """
     
     def __init__(
         self,
@@ -33,21 +23,6 @@ class AnomalyCLIPTrainer(Trainer):
         save_path: str | None = None,
         saving_criteria: Callable | None = None,
     ):
-        """
-        Initialize AnomalyCLIP trainer.
-        
-        Args:
-            train_args: Training arguments
-            model: AnomalyCLIPModel instance
-            train_dataset: Training dataset
-            eval_dataset: Evaluation dataset
-            metrics: List of metrics to evaluate
-            device: Device to run training on
-            logger: Logger for tracking metrics
-            logging_prefix: Prefix for logged metrics
-            save_path: Path to save model checkpoints
-            saving_criteria: Function to determine when to save model
-        """
         # Initialize optimizer before calling parent constructor
         # Only optimize prompt learner parameters
 
@@ -68,11 +43,8 @@ class AnomalyCLIPTrainer(Trainer):
         )
     
     def train(self):
-        """
-        Main training loop with AnomalyCLIP-specific configurations.
-        """
-        # Initialize training (sets up optimizer in training_args)
-        # Note: optimizer is already set in __init__
+        
+        self.train_args.init_train(self.model)
         
         if self.logger:
             self.logger.config.update(self.train_args.__to_dict__())
@@ -80,6 +52,7 @@ class AnomalyCLIPTrainer(Trainer):
         best_metrics = {metric.name: 0.0 for metric in self.metrics}
         
         for epoch in range(self.train_args.epochs):
+
             # Keep CLIP model frozen, only train prompt learner
             self.model.model.eval()
             self.model.prompt_learner.train()
@@ -116,7 +89,7 @@ class AnomalyCLIPTrainer(Trainer):
                     self.device
                 )
                 
-                # Save model if criteria met
+                # Save model if needed
                 self.save_model(best_metrics, results)
                 
                 # Update best metrics
@@ -129,7 +102,7 @@ class AnomalyCLIPTrainer(Trainer):
                 if self.logger is not None:
                     if self.logging_prefix is not None:
                         self.logger.log({
-                            f"{self.logging_prefix}/test/{metric_name}": value 
+                            f"{self.logging_prefix}/eval/{metric_name}": value 
                             for metric_name, value in results.items()
                         })
         
