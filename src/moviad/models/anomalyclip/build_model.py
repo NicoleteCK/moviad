@@ -1,6 +1,6 @@
 from torch import nn
 from moviad.backbones.clip.CLIP import CLIP
-from .AnomalyCLIP import AnomalyCLIP
+from moviad.models.anomalyclip.architecture import AnomalyCLIP
 
 def build_model(name: str, state_dict: dict, design_details = None):
     vit = "visual.proj" in state_dict
@@ -26,20 +26,12 @@ def build_model(name: str, state_dict: dict, design_details = None):
     transformer_width = state_dict["ln_final.weight"].shape[0]
     transformer_heads = transformer_width // 64
     transformer_layers = len(set(k.split(".")[2] for k in state_dict if k.startswith(f"transformer.resblocks")))
-    # print('name', name)
-    # if 'CS-' in name:
-    if design_details is not None:
-        model = AnomalyCLIP(
-            embed_dim,
-            image_resolution, vision_layers, vision_width, vision_patch_size,
-            context_length, vocab_size, transformer_width, transformer_heads, transformer_layers, design_details = design_details
-        )
-    else:
-        model = CLIP(
-            embed_dim,
-            image_resolution, vision_layers, vision_width, vision_patch_size,
-            context_length, vocab_size, transformer_width, transformer_heads, transformer_layers
-        )
+
+    model = AnomalyCLIP(
+        embed_dim,
+        image_resolution, vision_layers, vision_width, vision_patch_size,
+        context_length, vocab_size, transformer_width, transformer_heads, transformer_layers, design_details = design_details
+    )
 
     for key in ["input_resolution", "context_length", "vocab_size"]:
         if key in state_dict:

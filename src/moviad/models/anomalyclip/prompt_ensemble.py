@@ -1,6 +1,6 @@
 import os
 from typing import Union, List
-from pkg_resources import packaging
+import packaging
 import torch
 import numpy as np
 from moviad.backbones.clip.simple_tokenizer import SimpleTokenizer as _Tokenizer
@@ -101,12 +101,12 @@ class AnomalyCLIP_PromptLearner(nn.Module):
         else:
             # Random Initialization
             if True:
-                print("Initializing class-specific contexts")
+                #print("Initializing class-specific contexts")
                 #这里是cls是类的个数，n_ctx_pos代表learnable token的长度，ctx_dim表示prompt的dimension
                 ctx_vectors_pos = torch.empty(self.n_cls, self.normal_num, n_ctx_pos, ctx_dim, dtype=dtype)
                 ctx_vectors_neg = torch.empty(self.n_cls, self.anormaly_num, n_ctx_neg, ctx_dim, dtype=dtype)
             else:
-                print("Initializing a generic context")
+                #print("Initializing a generic context")
                 ctx_vectors_pos = torch.empty(n_ctx_pos, ctx_dim, dtype=dtype)
                 ctx_vectors_neg = torch.empty(n_ctx_neg, ctx_dim, dtype=dtype)
             nn.init.normal_(ctx_vectors_pos, std=0.02)
@@ -117,7 +117,7 @@ class AnomalyCLIP_PromptLearner(nn.Module):
         self.compound_prompts_text = nn.ParameterList([nn.Parameter(torch.empty(self.text_encoder_n_ctx, ctx_dim))
                                                       for _ in range(self.compound_prompts_depth - 1)])
         for single_para in self.compound_prompts_text:
-            print("single_para", single_para.shape)
+            #print("single_para", single_para.shape)
             nn.init.normal_(single_para, std=0.02)
 
         single_layer = nn.Linear(ctx_dim, 896)
@@ -148,7 +148,7 @@ class AnomalyCLIP_PromptLearner(nn.Module):
             embedding_pos = clip_model.token_embedding(tokenized_prompts_pos).type(dtype)
             embedding_neg = clip_model.token_embedding(tokenized_prompts_neg).type(dtype)
             n, l, d = embedding_pos.shape
-            print("embedding_pos", embedding_pos.shape)
+            #print("embedding_pos", embedding_pos.shape)
             embedding_pos = embedding_pos.reshape(normal_num, self.n_cls, l, d).permute(1, 0, 2, 3)
             embedding_neg = embedding_neg.reshape(anormaly_num, self.n_cls, l, d).permute(1, 0, 2, 3)
 
@@ -169,7 +169,7 @@ class AnomalyCLIP_PromptLearner(nn.Module):
         # tokenized_prompts = torch.cat([tokenized_prompts_pos, tokenized_prompts_neg], dim=0)  # torch.Tensor
         self.register_buffer("tokenized_prompts_pos", tokenized_prompts_pos)
         self.register_buffer("tokenized_prompts_neg", tokenized_prompts_neg)
-        print("tokenized_prompts shape", self.tokenized_prompts_pos.shape, self.tokenized_prompts_neg.shape)
+        #print("tokenized_prompts shape", self.tokenized_prompts_pos.shape, self.tokenized_prompts_neg.shape)
 
 
 

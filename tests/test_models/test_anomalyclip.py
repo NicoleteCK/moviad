@@ -2,13 +2,13 @@ def test_model_create_train():
     from moviad.models.anomalyclip.anomalyclip import AnomalyCLIP, AnomalyCLIPArgs
     from moviad.models.training_args import TrainingArgs
     from moviad.trainers.trainer import Trainer
-    from moviad.trainers.trainer_anomalyclip import AnomalyCLIPTrainer
     from moviad.datasets.cps_ad2d.cpsad2d_dataset import CPSAD2DDataset
     from moviad.datasets.dataset_arguments import DatasetArguments
     from moviad.utilities.evaluation.metrics import MetricLvl, RocAuc, AvgPrec, F1, ProAuc
     from torch.utils.data import DataLoader, Subset
     import torch
     import wandb
+    import random
     from tqdm import tqdm
     import numpy as np
     from moviad.utilities.evaluation.metrics import MetricLvl
@@ -32,7 +32,7 @@ def test_model_create_train():
 
 
     args = DatasetArguments(
-        dataset_path = "/home/nicola_berti/big_disk/Datasets/CPS-AD2D",
+        dataset_path = "/home/nicola_berti/example_proj/CPS-AD2D",
         img_size = (img_size, img_size),
         gt_mask_size = (img_size, img_size),
         image_transform_list = transform_list
@@ -40,8 +40,12 @@ def test_model_create_train():
 
     # IMPORTANT : the actual training dataset cannot be composed only by normal samples.
     # This is why for testing the training I am using th test dataset (default should be 15 epoch).
+    # To performe Zero-Shot or Few-Shot perform directly the TEST, TRAINING is used only for finetuning.
     train_normal_dataset = CPSAD2DDataset(args, split="train")
+    train_normal_dataset = Subset(train_normal_dataset, list(range(0, 10)))  # use a subset for faster testing
+
     test_dataset = CPSAD2DDataset(args, split="test")
+    test_dataset = Subset(test_dataset, list(range(0,10))) # use a subset for faster testing
 
     print(f"Train dataset size: {len(train_normal_dataset)}")
     print(f"Test dataset size: {len(test_dataset)}")
@@ -63,7 +67,7 @@ def test_model_create_train():
 
     training_args = AnomalyCLIPArgs(batch_size=32, epochs=1, evaluation_epoch_interval=2)
 
-    trainer = AnomalyCLIPTrainer(
+    trainer = Trainer(
         training_args,
         model,
         test_dataset,
@@ -79,7 +83,7 @@ def test_model_create_train():
         ],
         device=device,
         logger=wandb,
-        save_path="/home/nicola_berti/big_disk/AnomalyCLIP_checkpoint/save_test.pth",
+        save_path="/home/nicola_berti/example_proj/save_test.pth",
         saving_criteria=None,
     )
 
@@ -117,8 +121,7 @@ def test_model_create_train():
 
         if k > 0:
 
-            few_shot_indices = list(range(min(k, len(train_normal_dataset))))
-            #few_shot_indices = centroids_indices[k]
+            few_shot_indices = random.sample(range(len(train_normal_dataset)),k)
             few_shot_subset = Subset(train_normal_dataset, few_shot_indices)
             few_shot_dataloader = DataLoader(few_shot_subset, batch_size=1, shuffle=False, num_workers=2)
 

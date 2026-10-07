@@ -9,8 +9,8 @@ from moviad.models.training_args import TrainingArgs
 from moviad.common.common_losses import FocalLoss, BinaryDiceLoss
 
 # Import from AnomalyCLIP
-from . import AnomalyCLIP_lib
-from .prompt_ensemble import AnomalyCLIP_PromptLearner
+from moviad.models.anomalyclip.model_load import load , get_similarity_map, compute_similarity, download_prompt_learner
+from moviad.models.anomalyclip.prompt_ensemble import AnomalyCLIP_PromptLearner
 
 class AnomalyCLIPArgs(TrainingArgs):
 
@@ -64,7 +64,7 @@ class AnomalyCLIP(VADModel):
         }
         
         # Load pretrained CLIP model
-        self.model, _ = AnomalyCLIP_lib.load(
+        self.model, _ = load( 
             pretrained_model, 
             device=device, 
             design_details=anomalyclip_params
@@ -78,7 +78,7 @@ class AnomalyCLIP(VADModel):
         )
 
         if checkpoint is not None:
-            checkpoint_path = AnomalyCLIP_lib.download_prompt_learner(checkpoint)
+            checkpoint_path = download_prompt_learner(checkpoint)
             self.load(checkpoint_path)
 
         self.prompt_learner.to(device)
@@ -180,11 +180,11 @@ class AnomalyCLIP(VADModel):
             if idx >= self.feature_map_layer[0]:
                 patch_feature = patch_feature / patch_feature.norm(dim=-1, keepdim=True)
                 
-                similarity, _ = AnomalyCLIP_lib.compute_similarity(
+                similarity, _ = compute_similarity(
                     patch_feature, 
                     text_features[0]
                 )
-                similarity_map = AnomalyCLIP_lib.get_similarity_map(
+                similarity_map = get_similarity_map(
                     similarity[:, 1:, :], 
                     self.image_size
                 ).permute(0, 3, 1, 2)
@@ -311,7 +311,7 @@ class AnomalyCLIP(VADModel):
         self.mem_image_features = None
         self.mem_patch_features = None
 
-    def save_model(self, save_path: str):
+    def save_model(self, save_path):
         torch.save({"prompt_learner": self.prompt_learner.state_dict()}, save_path)
     
     def load(self, load_path: str):

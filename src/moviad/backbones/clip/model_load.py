@@ -3,7 +3,7 @@ import os
 import urllib
 import warnings
 from typing import Union, List
-from pkg_resources import packaging
+import packaging
 
 import torch
 from PIL import Image
@@ -11,8 +11,8 @@ from torchvision.transforms import Compose, Resize, ToTensor, Normalize
 from tqdm import tqdm
 import numpy as np
 
-from .simple_tokenizer import SimpleTokenizer as _Tokenizer
-from .CLIP import build_model
+from moviad.backbones.clip.simple_tokenizer import SimpleTokenizer as _Tokenizer
+from moviad.backbones.clip.CLIP import build_model
 from torchvision.transforms import InterpolationMode
 
 if packaging.version.parse(torch.__version__) < packaging.version.parse("1.7.1"):
@@ -137,7 +137,7 @@ def load(name: str, device: Union[str, torch.device] = "cuda" if torch.cuda.is_a
     preprocess : Callable[[PIL.Image], torch.Tensor]
         A torchvision transform that converts a PIL image into a tensor that the returned model can take as its input
     """
-    print("name", name)
+    print("ViT_name:", name)
     if name in _MODELS:
         model_path = _download(_MODELS[name], download_root or os.path.expanduser("~/.cache/clip"))
     elif os.path.isfile(name):
