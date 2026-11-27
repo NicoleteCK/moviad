@@ -10,7 +10,7 @@ from typing import List, Optional, Union
 
 import torch
 
-from .model import build_model_from_openai_state_dict, convert_weights_to_lp, get_cast_dtype
+from .adapted_clip import build_model_from_openai_state_dict, convert_weights_to_lp, get_cast_dtype
 
 __all__ = ["list_openai_models", "load_openai_model"]
 

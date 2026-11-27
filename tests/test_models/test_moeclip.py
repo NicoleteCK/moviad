@@ -36,7 +36,7 @@ def test_moe_clip_model():
     wandb.init(project="moe_clip_test", entity="test_cpsad2d", name="moe_clip", mode="disabled")
 
 
-    dataset_path = "/home/nicola_berti/example_proj/CPS-AD2D"
+    dataset_path = "/Users/nicolaberti/Documents/Datasets/CPS-AD2D"
     dataset_name = "CPS-AD2D"  
     category_test = "CPS-AD2D" 
     category_train = "CPS-AD2D"
@@ -53,7 +53,7 @@ def test_moe_clip_model():
     # To performe Zero-Shot or Few-Shot perform directly the TEST, TRAINING is used only for finetuning.
 
     test_dataset = CPSAD2DDataset(args, split="test")
-    test_dataset = Subset(test_dataset, list(range(0,10))) # use a subset for faster testing
+    test_dataset = Subset(test_dataset, list(range(0,3))) # use a subset for faster testing
     print(f"Test dataset size: {len(test_dataset)}")
 
     model = MoECLIPModel(
@@ -72,7 +72,7 @@ def test_moe_clip_model():
         relu=False,
         balance_loss_lambda=0.01,
         etf_loss_lambda=0.01,
-        checkpoint_path=None, # Inserisci il path di un eventuale .pt/.pth se vuoi fare test da checkpoint
+        checkpoint_path= "/Users/nicolaberti/Documents/Datasets/Test/test_save_moeclip.pth", # Inserisci il path di un eventuale .pt/.pth se vuoi fare test da checkpoint
         dataset_train=dataset_name,
         category_train=category_train,
         dataset_test=dataset_name,
@@ -100,7 +100,7 @@ def test_moe_clip_model():
         ],
         device=device,
         logger=wandb,
-        save_path= "/home/nicola_berti/example_proj/test_save_moeclip.pth",
+        save_path= "/Users/nicolaberti/Documents/Datasets/Test/test_save_moeclip.pth",
         saving_criteria=None,
     )
 

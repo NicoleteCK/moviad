@@ -1,10 +1,16 @@
 import torch
-from torch import nn
+from torch import nn, einsum
 import torch.nn.functional as F
-from .adapter_modules import SimpleAdapter, SimpleProj, SimpleLoRA, ConvAdapterProj
-from .config import LoraConfig, MixLoraConfig
-from typing import Dict, Optional, Tuple, List
+from typing import Dict, Optional, Tuple, List, Union
 import math
+
+import copy
+from dataclasses import dataclass
+from transformers.activations import ACT2FN
+
+
+from inspect import isfunction
+from einops import rearrange, repeat
 
 def etf_loss(
     expert_outputs: torch.Tensor,
@@ -35,6 +41,347 @@ def etf_loss(
     
     return loss
 
+#Adapter Config
+
+@dataclass
+class AdapterConfig:
+    base_model_: str = None
+    task_type_: str = None
+    peft_type_: str = None
+    adapter_name_: str = None
+    model_type_: str = 'vision_transformer'
+    dtype_: torch.dtype = None
+
+    @property
+    def base_model_name_or_path(self):
+        return self.base_model_
+
+    @property
+    def adapter_name(self):
+        return self.adapter_name_
+
+    def check(self) -> "AdapterConfig":
+        assert isinstance(self.base_model_, str)
+        assert isinstance(self.task_type_, str)
+        assert isinstance(self.peft_type_, str)
+
+        return self
+
+    @staticmethod
+    def from_config(config: Dict[str, any]) -> "AdapterConfig":
+        return AdapterConfig(
+            base_model_=config["base_model_name_or_path"],
+            task_type_=config["task_type"],
+            peft_type_=config["peft_type"],
+        )
+
+    def export(self) -> Dict[str, any]:
+        config = {}
+        config["bias"] = "none"
+        config["peft_type"] = self.peft_type_
+        config["task_type"] = self.task_type_
+        config["base_model_name_or_path"] = self.base_model_
+
+        return config
+
+
+lora_target_modules = {
+    "q_proj": False,
+    "k_proj": False,
+    "v_proj": False,
+    "o_proj": False,
+    "gate_proj": False,
+    "down_proj": False,
+    "up_proj": False,
+    "q_proj": False,
+    "k_proj": False,
+    "v_proj": False,
+    "dense": False,
+    "fc1": False,
+    "fc2": False,
+    # Phi3 names
+    "qkv_proj": False,
+    "o_proj": False,
+    "gate_up_proj": False,
+    "down_proj": False,
+}
+
+
+@dataclass
+class LoraConfig(AdapterConfig):
+    # Weight-Decomposed Low-Rank Adaptation
+    use_dora_: bool = False
+    # Rank-Stabilized LoRA
+    # sets the adapter scaling factor to `alpha/math.sqrt(r)`
+    use_rslora_: bool = False
+    # can be original or gaussian
+    lora_init_: str = "original"
+    lora_r_: int = None
+    lora_alpha_: int = None
+    lora_dropout_: float = None
+    target_modules_: Dict[str, bool] = None
+
+    def check(self) -> "LoraConfig":
+        super().check()
+        assert isinstance(self.use_dora_, bool)
+        assert isinstance(self.use_rslora_, bool)
+        assert isinstance(self.lora_init_, str) and self.lora_init_ in [
+            "original",
+            "gaussian",
+        ]
+        assert isinstance(self.lora_r_, int) and self.lora_r_ > 0
+        assert isinstance(self.lora_alpha_, int) and self.lora_alpha_ > 0
+        assert isinstance(self.lora_dropout_, float) and self.lora_dropout_ >= 0
+        assert isinstance(self.target_modules_, Dict)
+        for key, value in self.target_modules_.items():
+            assert isinstance(key, str) and len(key) > 0
+            assert isinstance(value, bool)
+
+        return self
+
+    @staticmethod
+    def from_config(config: Dict[str, any]) -> "LoraConfig":
+        lora_config = LoraConfig(**AdapterConfig.from_config(config).__dict__)
+        lora_config.use_dora_ = config.get("use_dora", False)
+        lora_config.use_rslora_ = config.get("use_rslora", False)
+        lora_config.lora_init_ = config.get("lora_init", "original")
+        lora_config.lora_r_ = config["r"]
+        lora_config.lora_alpha_ = config["lora_alpha"]
+        lora_config.lora_dropout_ = config["lora_dropout"]
+        lora_config.target_modules_ = copy.deepcopy(lora_target_modules)
+        if isinstance(config["target_modules"], List):
+            for target in config["target_modules"]:
+                if target in lora_target_modules:
+                    lora_config.target_modules_[target] = True
+        elif isinstance(config["target_modules"], Dict):
+            for target, value in config["target_modules"].items():
+                if target in lora_target_modules:
+                    lora_config.target_modules_[target] = value
+        else:
+            raise ValueError("broken config item: target_modules")
+
+        return lora_config
+
+    def export(self) -> Dict[str, any]:
+        config = super().export()
+        if self.use_dora_:
+            config["use_dora"] = True
+        if self.use_rslora_:
+            config["use_rslora"] = True
+        config["r"] = self.lora_r_
+        config["lora_alpha"] = self.lora_alpha_
+        config["lora_dropout"] = self.lora_dropout_
+        tgt_list = []
+        for target, value in self.target_modules_.items():
+            if value:
+                tgt_list.append(target)
+        config["target_modules"] = tgt_list
+
+        return config
+
+
+available_routing_strategies = ["mixlora"]
+
+
+@dataclass
+class MixLoraConfig(LoraConfig):
+    # expert lora
+    expert_config_: LoraConfig = None
+    # router config
+    router_aux_loss_coef_: float = None
+    router_init_range_: float = None
+    routing_strategy_: str = None
+    jitter_noise_: float = None
+    router_loss_: bool = True
+    num_experts_: int = None
+    act_fn_: Optional[Union[str, torch.nn.Module]] = None
+    top_k_: int = None
+    num_lora_experts_: int = None
+
+    def check(self) -> "MixLoraConfig":
+        super().check()
+        if self.expert_config_ is not None:
+            self.expert_config_.check()
+        assert (
+            isinstance(self.router_aux_loss_coef_, float)
+            and self.router_aux_loss_coef_ >= 0
+        )
+        assert (
+            isinstance(self.router_init_range_, float) and self.router_init_range_ >= 0
+        )
+        assert (
+            isinstance(self.routing_strategy_, str)
+            and self.routing_strategy_ in available_routing_strategies
+        )
+        assert isinstance(self.jitter_noise_, float) and self.jitter_noise_ >= 0
+        assert isinstance(self.router_loss_, bool)
+        assert isinstance(self.num_experts_, int) and self.num_experts_ > 0
+        assert self.act_fn_ is None or (
+            isinstance(self.act_fn_, str) and self.act_fn_ in ACT2FN
+        )
+        if self.routing_strategy_ == "mixlora":
+            assert isinstance(self.top_k_, int) and self.top_k_ > 0
+        else:
+            raise NotImplementedError()
+
+        return self
+
+    @staticmethod
+    def from_config(config: Dict[str, any]) -> "MixLoraConfig":
+        lora_config = MixLoraConfig(**LoraConfig.from_config(config).__dict__)
+        lora_config.routing_strategy_ = config.get("routing_strategy", None)
+        assert (
+            lora_config.peft_type_ == "MIXLORA"
+            and lora_config.routing_strategy_ is not None
+            and lora_config.routing_strategy_ == "mixlora"
+        ), "MixLoraConfig only supports MixLoRA models with 'mixlora' routing_strategy."
+        if "expert_lora" in config:
+            expert_config = copy.deepcopy(config)
+            expert_config.update(config["expert_lora"])
+            lora_config.expert_config_ = LoraConfig().from_config(expert_config)
+        lora_config.router_aux_loss_coef_ = config.get(
+            "router_aux_loss_coef", 0.001
+        )  # for training
+        lora_config.router_loss_ = config.get("router_loss", True)
+        lora_config.num_experts_ = config["num_experts"]
+        # left blank to automatically use the original act_fn of FFN
+        lora_config.act_fn_ = config.get("act_fn", None)
+        if lora_config.routing_strategy_ == "mixlora":
+            lora_config.router_init_range_ = config.get("router_init_range", 0.02)
+            lora_config.jitter_noise_ = config.get("jitter_noise", 0.0)
+            lora_config.top_k_ = config.get("top_k", 2)
+            lora_config.num_lora_experts_ = config.get("num_lora_experts", 4)
+        else:
+            raise NotImplementedError()
+
+        return lora_config
+
+    def export(self) -> Dict[str, any]:
+        config = super().export()
+        config["peft_type"] = "MIXLORA"
+        if self.expert_config_ is not None:
+            expert_config = self.expert_config_.export()
+            expert_config.pop("peft_type")
+            expert_config.pop("target_modules")
+            config["expert_lora"] = expert_config
+        config["routing_strategy"] = self.routing_strategy_
+        config["num_experts"] = self.num_experts_
+        if self.act_fn_ is not None and isinstance(self.act_fn_, str):
+            config["act_fn"] = self.act_fn_
+        if self.routing_strategy_ == "mixlora":
+            config["top_k"] = self.top_k_
+        else:
+            raise NotImplementedError()
+
+        return config
+
+    def expert_config(self, expert_idx: int) -> LoraConfig:
+        if self.expert_config_ is None:
+            config = copy.deepcopy(super())
+        else:
+            config = copy.deepcopy(self.expert_config_)
+        return config
+
+
+#Adapter Modules
+
+class SimpleAdapter(nn.Module):
+    def __init__(self, c_in, c_out=768):
+        super(SimpleAdapter, self).__init__()
+        self.fc = nn.Sequential(nn.Linear(c_in, c_out, bias=False), nn.LeakyReLU())
+
+    def forward(self, x):
+        x = self.fc(x)
+        return x
+
+class SimpleProj(nn.Module):
+    def __init__(self, c_in, c_out=768, relu=True):
+        super(SimpleProj, self).__init__()
+        if relu:
+            self.fc = nn.Sequential(
+                nn.Linear(c_in, c_out, bias=False), 
+                nn.LeakyReLU()
+            )
+        else:
+            self.fc = nn.Linear(c_in, c_out, bias=False)
+            
+        self.fc.apply(self._init_weights_fn)
+
+    def _init_weights_fn(self, module):
+        if isinstance(module, nn.Linear):
+            nn.init.xavier_uniform_(module.weight)
+            if module.bias is not None:
+                nn.init.zeros_(module.bias)
+
+    def forward(self, x):
+        x = self.fc(x)
+        return x
+    
+class SimpleLoRA(nn.Module):
+    def __init__(self, c_in, c_out=768, r=8, alpha = 16, init_option="lora"):
+        super(SimpleLoRA, self).__init__()
+        self.r = r
+        self.random_orth = False
+        self.alpha = alpha
+        self.scaling_ = self.alpha / self.r
+        
+        self.lora_A = nn.Linear(c_in, self.r, bias=False)
+        self.lora_B = nn.Linear(self.r, c_out, bias=False)
+            
+        if self.random_orth:
+            for param in self.lora_A.parameters():
+                param.requires_grad = False            
+            random_matrix = torch.rand(c_in, self.r)
+            q, r = torch.linalg.qr(random_matrix)
+            with torch.no_grad():
+                self.lora_A.weight.copy_(q.T)
+            scaling_factor = 1. 
+            self.lora_A.weight.data *= scaling_factor
+        else:
+            with torch.no_grad():
+                nn.init.kaiming_uniform_(self.lora_A.weight, a=math.sqrt(5))
+
+        if init_option == "bert":
+            raise NotImplementedError
+        elif init_option == "lora":
+            with torch.no_grad():
+                nn.init.zeros_(self.lora_B.weight)
+        else:
+            raise NotImplementedError
+    
+    def forward(self, x):
+        lora_out = self.lora_A(x)
+        lora_output = self.lora_B(lora_out) * self.scaling_
+        
+        return lora_output
+    
+class ConvAdapterProj(nn.Module):
+    def __init__(self, c_in, c_out=768, kernel_size=3):
+        super(ConvAdapterProj, self).__init__()
+        self.ln = nn.LayerNorm(c_in)
+        self.adapter = nn.Sequential(
+            nn.Conv1d(c_in, c_in, kernel_size=kernel_size, padding='same', groups=c_in, bias=False),
+            nn.GELU(),
+            nn.Conv1d(c_in, c_out, kernel_size=1, bias=False)
+        )
+
+        self._init_weights()
+
+    def _init_weights(self):
+        for module in self.adapter:
+            if isinstance(module, nn.Conv1d):
+                nn.init.xavier_uniform_(module.weight)
+                if module.bias is not None:
+                    nn.init.zeros_(module.bias)
+
+    def forward(self, x):
+        x_norm = self.ln(x)
+        x_permuted = x_norm.permute(0, 2, 1)
+        adapter_output = self.adapter(x_permuted)
+        output = adapter_output.permute(0, 2, 1)
+        
+        return output
+
 class SimpleLoraExpert(nn.Module):
     def __init__(
         self,
@@ -52,7 +399,7 @@ class SimpleLoraExpert(nn.Module):
         self.dtype_ = config.dtype_
         self.r_ = config.lora_r_
         self.alpha_ = config.lora_alpha_
-        self.device_ = torch.device("cuda:0")
+        self.device_ = device
         
         if config.use_rslora_:
             self.scaling_ = self.alpha_ / math.sqrt(self.r_)
@@ -138,7 +485,7 @@ class BaseIndependentMoE(nn.Module):
         fixed_A_matrices = []
         current_start_idx = 0
         
-        print(f"Creating fofs LoRA A matrices for d_model={in_features}, num_experts={num_experts}")
+        #print(f"Creating fofs LoRA A matrices for d_model={in_features}, num_experts={num_experts}")
 
         for i in range(num_experts):
             chunk_size = base_chunk_size + 1 if i < remainder else base_chunk_size
@@ -146,7 +493,7 @@ class BaseIndependentMoE(nn.Module):
             start_idx = current_start_idx
             end_idx = start_idx + chunk_size
             
-            print(f"  - Expert {i+1}: features from {start_idx} to {end_idx-1} (size: {chunk_size})")
+            #print(f"  - Expert {i+1}: features from {start_idx} to {end_idx-1} (size: {chunk_size})")
 
             temp_matrix = torch.randn(chunk_size, rank, device=self.gate.weight.device, dtype=self.config.dtype_)
             q, _ = torch.linalg.qr(temp_matrix)
@@ -484,3 +831,5 @@ class MoECLIP(nn.Module):
         x = self.clipmodel.ln_final(x)  # [batch_size, n_ctx, transformer.width]
         x = self.text_adapter[-1](x[torch.arange(x.shape[0]), text.argmax(dim=-1)])
         return x
+
+

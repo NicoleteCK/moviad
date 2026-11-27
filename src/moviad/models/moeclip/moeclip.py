@@ -1,8 +1,5 @@
 import torch
-import torch.nn as nn
-import numpy as np
 import torch.nn.functional as F
-from typing import Dict, List, Optional, Tuple
 import os
 from torch.optim.lr_scheduler import MultiStepLR
 from tqdm import tqdm
@@ -12,14 +9,12 @@ from moviad.models.vad_model import VADModel
 from moviad.models.training_args import TrainingArgs
 
 # Import from MoE-CLIP
-from .utils import setup_seed
-from .MoECLIP.moe_adapter import MoECLIP
-from .MoECLIP.clip import create_model
-from .forward_utils import (
+from .moe_adapter import MoECLIP
+from .build_model import create_model
+from .utils import (
     get_adapted_single_class_text_embedding,
     calculate_similarity_map,
     calculate_seg_loss,
-    get_adapted_text_embedding
 )
 from .constants import DOMAINS, REAL_NAMES, PROMPTS , CLASS_NAMES
 
@@ -338,9 +333,9 @@ class MoECLIPModel(VADModel):
 
             params_to_train.append({"params": image_params})
 
-            for name, param in model.named_parameters():
+            '''for name, param in model.named_parameters():
                 if "lora_A" in name:
-                    print(f"{name}: requires_grad={param.requires_grad}")
+                    print(f"{name}: requires_grad={param.requires_grad}")'''
         else:
             for param in model.image_adapter.parameters():
                 param.requires_grad = True

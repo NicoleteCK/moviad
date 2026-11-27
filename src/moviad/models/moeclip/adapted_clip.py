@@ -13,7 +13,7 @@ import torch
 import torch.nn.functional as F
 from torch import nn
 from torch.utils.checkpoint import checkpoint
-from .modified_resnet import ModifiedResNet
+from moviad.backbones.clip.CLIP import ModifiedResNet
 from .transformer import LayerNormFp32, LayerNorm, QuickGELU, Attention, VisionTransformer, TextTransformer
 
 

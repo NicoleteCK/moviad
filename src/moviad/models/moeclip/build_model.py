@@ -1,18 +1,38 @@
 import json
 import logging
-import os
 import numpy as np
 import re
 from copy import deepcopy
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple, Union
+from typing import Optional, Tuple, Union
 import torch
-from .model import CLIP, CustomTextCLIP, convert_weights_to_lp, convert_to_custom_text_state_dict, resize_pos_embed, get_cast_dtype
-from .openai import load_openai_model
+from .adapted_clip import CLIP, CustomTextCLIP, convert_weights_to_lp, convert_to_custom_text_state_dict, resize_pos_embed, get_cast_dtype
+from .model_load import load_openai_model
 
 
+#Possible new config
 _MODEL_CONFIG_PATHS = [Path(__file__).parent / f"model_configs/"]
-_MODEL_CONFIGS = {}  # directory (model_name: config) of model architecture configs
+
+_DEFAULT_CONFIG = {
+    "embed_dim": 768,
+    "vision_cfg": {
+        "image_size": 336,
+        "layers": 24,
+        "width": 1024,
+        "patch_size": 14,
+    },
+    "text_cfg": {
+        "context_length": 77,
+        "vocab_size": 49408,
+        "width": 768,
+        "heads": 12,
+        "layers": 12,
+    },
+}
+
+_MODEL_CONFIGS = {
+    "ViT-L-14-336": _DEFAULT_CONFIG,
+}
 _MODEL_CKPT_PATHS = {'ViT-L-14-336': Path(__file__).parent / "ViT-L-14-336px.pt"}
 
 
@@ -51,12 +71,12 @@ def list_models():
 
 
 def get_model_config(model_name):
-    # print(_MODEL_CONFIGS)
+    
     if model_name in _MODEL_CONFIGS:
-        # print('herehere')
+        
         return deepcopy(_MODEL_CONFIGS[model_name])
     else:
-        return None
+        return deepcopy(_DEFAULT_CONFIG)
 
 
 def load_state_dict(checkpoint_path: str, map_location='cpu'):
@@ -107,7 +127,7 @@ def create_model(
     if pretrained and pretrained.lower() == 'openai':
         logging.info(f'Loading pretrained {model_name} from OpenAI.')
         model_cfg = model_cfg or get_model_config(model_name)
-        # print(model_cfg['vision_cfg'])
+    
 
         model_cfg['vision_cfg']['image_size'] = img_size
         cast_dtype = get_cast_dtype(precision)
@@ -141,7 +161,7 @@ def create_model(
         if jit:
             model = torch.jit.script(model)
     else:
-        # print('here')
+        
         model_cfg = model_cfg or get_model_config(model_name)
         if model_cfg is not None:
             print(f'Loaded {model_name} model config.')
