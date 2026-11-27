@@ -61,6 +61,8 @@ class MoECLIPModel(VADModel):
         balance_loss_lambda: float = 0.01,
         etf_loss_lambda: float = 0.01,
         checkpoint_path: str = None,
+
+        #Need to set this to handle different dataset/classes in training/test
         dataset_train: str = None,
         category_train: str = None,
         dataset_test: str = None,
@@ -164,13 +166,10 @@ class MoECLIPModel(VADModel):
                 )
                 print(f"[MoE-CLIP] Successfully generated cached text embeddings for class: {self.category}")
             else:
-                # Fallback mechanism if MoViAD category string is missing from constants.py
-                print(f"[MoE-CLIP] Warning: Category '{self.category}' not found in CLASS_NAMES[{self.dataset}].")
-                fallback_class = CLASS_NAMES[self.dataset][0]
-                self.cached_class_text_embedding = get_adapted_single_class_text_embedding(
-                    text_encoder_model, self.dataset, fallback_class, self.device
-                )
-                print(f"[MoE-CLIP] Fallback active. Using embedding configuration of: {fallback_class}")
+                raise ValueError(
+                            f"Category '{self.category}' not found in CLASS_NAMES['{self.dataset}']. "
+                            f"Available categories: {CLASS_NAMES[self.dataset]}"
+                        )
 
     def forward(self, images: torch.Tensor):
         """
@@ -222,7 +221,6 @@ class MoECLIPModel(VADModel):
         image = batch[0].to(self.device)
         label = batch[1].to(self.device)
         gt_mask = batch[2].to(self.device)
-        category = self.category
 
         epoch_text_feature = self.cached_class_text_embedding
 
