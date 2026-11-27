@@ -311,7 +311,7 @@ class AnomalyCLIP(VADModel):
         self.mem_image_features = None
         self.mem_patch_features = None
 
-    def save_model(self, save_path):
+    def save(self, save_path):
         torch.save({"prompt_learner": self.prompt_learner.state_dict()}, save_path)
     
     def load(self, load_path: str):
