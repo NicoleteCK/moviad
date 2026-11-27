@@ -167,6 +167,7 @@ class FiLoModel(VADModel):
         self,
         device: torch.device,
         dataset_name: str,
+        category: str,
         dino_config_path: str = "./src/moviad/models/filo/FiLo/GroundingDINO/groundingdino/config/GroundingDINO_SwinT_OGC.py",
         dino_checkpoint_path: str = None,
         filo_checkpoint_path: str = None,
@@ -206,6 +207,7 @@ class FiLoModel(VADModel):
         self.dataset_name = dataset_name
         self.few_shot_k = few_shot_k
         self.gaussian_filter = torchvision.transforms.GaussianBlur(3, 4.0)
+        self.category = category
         #self.idx = 0
 
         # Memory bank (populated lazily via build_memory_bank)
@@ -394,9 +396,10 @@ class FiLoModel(VADModel):
     # Forward pass
     # ------------------------------------------------------------------
 
-    def forward(self, image, category=None, **kwargs):
+    def forward(self, image):
 
-        cls_name = category if isinstance(category, str) else category[0]
+        cls_name = self.category
+        category = cls_name
 
         text_prompt = self.make_text_prompt(self.dataset_name, category)
 
@@ -562,11 +565,12 @@ class FiLoModel(VADModel):
 
         image = batch[0].to(self.device)
         label = batch[1].to(self.device)
-        cls_name = batch[4][0]
+        cls_name = self.category
 
         items = {"img": image, "cls_name": cls_name}
 
         if not training_args.train_adapter:
+            
             text_probs, anomaly_maps = self.filo_model(items, with_adapter=False)
 
             gt = batch[2].squeeze().to(self.device)
@@ -598,6 +602,102 @@ class FiLoModel(VADModel):
             training_args.optimizer_adapter.step()
 
         return loss.item()
+    '''
+    def train_step(self, batch: dict, training_args: FiLoArgs):
+        """
+        Perform a single training step supporting weakly supervised training.
+        """
+        loss_focal = FocalLoss()
+        loss_dice = BinaryDiceLoss()
+
+        image = batch[0].to(self.device)
+        label = batch[1].to(self.device)
+        cls_name = self.category
+
+        items = {"img": image, "cls_name": cls_name}
+
+        # =========================================================================
+        # FASE 1: MAIN PART (Localizzazione & Segmentazione)
+        # =========================================================================
+        if not training_args.train_adapter:
+            
+            text_probs, anomaly_maps = self.filo_model(items, with_adapter=False)
+
+            gt = batch[2].squeeze().to(self.device)
+            gt = (gt > 0.5).float()
+            
+            # Gestione delle dimensioni di GT per batch con B > 1 o B == 1
+            if gt.dim() == 2:
+                gt = gt.unsqueeze(0)  # [1, H, W]
+
+            seg_loss = torch.tensor(0.0, device=self.device)
+
+            normal_mask = (label == 0)
+            anomalous_mask = (label == 1)
+
+            for num in range(len(anomaly_maps)):
+                am = anomaly_maps[num]  # Shape: [B, 2, H, W]
+
+                # --- A. Supervisione completa per Immagini Normali ---
+                if normal_mask.any():
+                    am_norm = am[normal_mask]
+                    gt_norm = gt[normal_mask]
+                    
+                    # Assicuriamo la corrispondenza delle dimensioni GT [B_norm, 1, H, W]
+                    if gt_norm.dim() == 3:
+                        gt_norm = gt_norm.unsqueeze(1)
+
+                    seg_loss += loss_focal(am_norm, gt_norm)
+                    seg_loss += loss_dice(am_norm[:, 1, :, :], gt_norm.squeeze(1))
+                    seg_loss += loss_dice(am_norm[:, 0, :, :], 1.0 - gt_norm.squeeze(1))
+
+                # --- B. Supervisione Debole per Immagini Anomale (Top-K Pooling) ---
+                if anomalous_mask.any():
+                    am_anom = am[anomalous_mask]  # [B_anom, 2, H, W]
+                    
+                    # Canale 1 = mappa delle probabilità/score di anomalia
+                    prob_anom = F.softmax(am_anom, dim=1)[:, 1, :, :]  # [B_anom, H, W]
+                    
+                    B_anom = prob_anom.shape[0]
+                    prob_flat = prob_anom.view(B_anom, -1)
+                    
+                    # Top 1% dei pixel con lo score più elevato
+                    k = max(1, int(prob_flat.shape[1] * 0.01))
+                    topk_scores, _ = torch.topk(prob_flat, k=k, dim=1)
+                    
+                    image_anomaly_score = topk_scores.mean(dim=1)
+                    target = torch.ones_like(image_anomaly_score)
+                    
+                    seg_loss += F.binary_cross_entropy(image_anomaly_score, target)
+
+            training_args.optimizer_main_part.zero_grad()
+            if seg_loss > 0:
+                seg_loss.backward()
+                training_args.optimizer_main_part.step()
+
+            return seg_loss.item()
+
+        # =========================================================================
+        # FASE 2: ADAPTER PART (Classificazione Globale Image-Level)
+        # =========================================================================
+        else:
+            text_probs, anomaly_maps = self.filo_model(
+                items, only_train_adapter=True, with_adapter=True
+            )
+
+            # Reshape e scaling dei logits
+            text_probs = text_probs[:, 0, ...] / 0.07
+            if text_probs.dim() == 1:
+                text_probs = text_probs.unsqueeze(0)
+
+            # Cross Entropy vettorizzata sull'intero batch
+            cls_loss = F.cross_entropy(text_probs, label.long())
+
+            training_args.optimizer_adapter.zero_grad()
+            cls_loss.backward()
+            training_args.optimizer_adapter.step()
+
+            return cls_loss.item()
 
     def train_epoch(self, epoch: int, train_dataloader, training_args: FiLoArgs):
         """Train the model for one epoch and return the average batch loss."""
@@ -610,7 +710,7 @@ class FiLoModel(VADModel):
 
         avg_batch_loss /= len(train_dataloader)
         return avg_batch_loss
-
+    '''
     # ------------------------------------------------------------------
     # Utility methods (unchanged from original)
     # ------------------------------------------------------------------
@@ -672,6 +772,7 @@ class FiLoModel(VADModel):
             "visa":  prompt.visa_obj_list,
             "cps":   prompt.cps_obj_list,
             "miic":  prompt.miic_obj_list,
+            "fbk":  prompt.fbk_obj_list,
         }
         if dataset_name not in mapping:
             raise ValueError("Unsupported dataset name: {}".format(dataset_name))
@@ -688,6 +789,7 @@ class FiLoModel(VADModel):
             "visa":  prompt.visa_anomaly_detail_gpt,
             "cps":   prompt.cps_anomaly_detail_gpt,
             "miic":  prompt.miic_anomaly_detail_gpt,
+            "fbk":  prompt.fbk_anomaly_detail_gpt,
         }
         if dataset_name not in mapping:
             raise ValueError("Unsupported dataset name: {}".format(dataset_name))
@@ -784,6 +886,25 @@ class FiLoModel(VADModel):
         else:
             state_dict = checkpoint
 
+        # --- KEY REMAPPING STEP ---
+        # Convert 'qkv' and 'proj' keys into PyTorch's expected 'in_proj' and 'out_proj'
+        remapped_state_dict = {}
+        for k, v in state_dict.items():
+            new_k = k
+            if ".attn.qkv.weight" in new_k:
+                new_k = new_k.replace(".attn.qkv.weight", ".attn.in_proj_weight")
+            elif ".attn.qkv.bias" in new_k:
+                new_k = new_k.replace(".attn.qkv.bias", ".attn.in_proj_bias")
+            elif ".attn.proj.weight" in new_k:
+                new_k = new_k.replace(".attn.proj.weight", ".attn.out_proj.weight")
+            elif ".attn.proj.bias" in new_k:
+                new_k = new_k.replace(".attn.proj.bias", ".attn.out_proj.bias")
+            
+            remapped_state_dict[new_k] = v
+
+        state_dict = remapped_state_dict
+
+        # Extract CLIP-specific keys
         clip_state_dict = {
             k.replace("clip_model.", ""): v
             for k, v in state_dict.items()

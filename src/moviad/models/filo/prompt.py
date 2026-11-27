@@ -52,11 +52,15 @@ visa_anomaly_detail_gpt = {
 }
 
 cps_anomaly_detail_gpt = {
-    "ceramic package substrate": "cracks,chipped edges,delamination,voids,scratches,contamination,discoloration,warpage,missing metallization,excess metallization,broken traces,metal bridging,metal peeling,via defects,corrosion"
+    "ceramic package substrate": "crack,chipping,delamination,void,contamination,warpage"
 }
 
 miic_anomaly_detail_gpt = {
-    "integrated circuit metal layer": "open circuits,metal bridging,line breaks,line thinning,line widening,missing metal,excess metal,voids,cracks,particle contamination,residue,scratches,overetching,underetching,stringers,misalignment"
+    "integrated circuit metal layer": "open circuit,metal bridging,line break,void,particle contamination,missing metal"
+}
+
+fbk_anomaly_detail_gpt = {
+    "semiconductor wafer": "particle,scratch,crack,contamination,pattern missing,bridge"
 }
 
 for cls_name in mvtec_anomaly_detail_gpt.keys():
@@ -79,6 +83,11 @@ for cls_name in miic_anomaly_detail_gpt.keys():
         miic_anomaly_detail_gpt[cls_name].split(",")
     )
 
+for cls_name in fbk_anomaly_detail_gpt.keys():
+    fbk_anomaly_detail_gpt[cls_name] = (
+        fbk_anomaly_detail_gpt[cls_name].split(",")
+    )
+
 status_abnormal = {}
 
 for cls_name in mvtec_anomaly_detail_gpt.keys():
@@ -92,6 +101,9 @@ for cls_name in cps_anomaly_detail_gpt.keys():
 
 for cls_name in miic_anomaly_detail_gpt.keys():
     status_abnormal[cls_name] = ['abnormal {} ' + 'with {}'.format(x) for x in miic_anomaly_detail_gpt[cls_name]]
+
+for cls_name in fbk_anomaly_detail_gpt.keys():
+    status_abnormal[cls_name] = ['abnormal {} ' + 'with {}'.format(x) for x in fbk_anomaly_detail_gpt[cls_name]]
 
 mvtec_obj_list = [
     "bottle",
@@ -134,11 +146,16 @@ miic_obj_list = [
     "integrated circuit metal layer",
 ]
 
+fbk_obj_list = [
+    "semiconductor wafer",
+]
+
 dataset_anomaly_maps = {
     "mvtec": mvtec_anomaly_detail_gpt,
     "visa": visa_anomaly_detail_gpt,
     "cps": cps_anomaly_detail_gpt,
-    "miic": miic_anomaly_detail_gpt
+    "miic": miic_anomaly_detail_gpt,
+    "fbk": fbk_anomaly_detail_gpt,
 }
 
 cls_map = {}
@@ -152,6 +169,9 @@ for c_name in cps_obj_list:
     cls_map[c_name] = c_name
 
 for c_name in miic_obj_list:
+    cls_map[c_name] = c_name
+
+for c_name in fbk_obj_list:
     cls_map[c_name] = c_name
 
 cls_map["pcb1"] = "pcb"
