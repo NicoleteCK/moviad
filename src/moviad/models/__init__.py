@@ -8,5 +8,6 @@ from .supersimplenet.supersimplenet import SuperSimpleNet
 from .ganomaly.ganomaly import Ganomaly
 from .cfa.cfa import CFA
 from .anomalyclip.anomalyclip import AnomalyCLIP
+from .moeclip.moeclip import MoECLIP
 
 from .vad_model import VADModel

@@ -265,7 +265,7 @@ class MoECLIPModel(VADModel):
         return avg_batch_loss
 
 
-    def save_model(self, save_path: str):
+    def save(self, save_path: str):
         
         checkpoint = {
             "text_adapter": self.model.text_adapter.state_dict(),
